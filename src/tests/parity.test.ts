@@ -101,6 +101,7 @@ describe("SA-4 Deterministic Cross-Path Parity", () => {
   describe("cross-path parity — runCombatToCompletion vs runSingleGame combat", () => {
     for (const seed of seeds) {
       it(`${seed}: sync runner matches the combat phase of a full run`, async () => {
+        // runSingleGame uses nextPaint (rAF) for UI yields — allow 30s in tests.
         const cfg = runnerConfig("balanced");
         const state1 = makeCombatState(seed);
         const r1 = RngEngine.deserialize(state1.rng!);
@@ -114,7 +115,7 @@ describe("SA-4 Deterministic Cross-Path Parity", () => {
         // combat (victory/defeat/retreat). We can't fingerprint the full run's
         // internal combat state, but we can confirm the run completed.
         expect(fullRun.outcome).toBeDefined();
-      });
+      }, 30000);
     }
   });
 
@@ -130,7 +131,7 @@ describe("SA-4 Deterministic Cross-Path Parity", () => {
         expect(result1.totalTurns).toBe(result2.totalTurns);
         expect(result1.roomsCleared).toBe(result2.roomsCleared);
         expect(result1.heroesAlive).toBe(result2.heroesAlive);
-      });
+      }, 30000);
     }
   });
 

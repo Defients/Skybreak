@@ -41,8 +41,9 @@ import {
 import { resolveRestChoice, calculateScore, checkVictory, checkDefeat, finalizeRunStats } from "../engine/progressionEngine";
 import { validateState } from "../engine/validationEngine";
 import { autosave, saveGame } from "../engine/saveLoad";
-import { emitEvent } from "../engine/eventLog";
+import { emitEvent, resetEventSequence } from "../engine/eventLog";
 import { generateSeed, resetIdCounter } from "../utils/ids";
+import { useHybridStore } from "./hybridStore";
 
 function withRng(state: GameState, rng: RngEngine | null): GameState {
   if (!rng) return state;
@@ -94,6 +95,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   startNewRun: (config, partyChoices) => {
     resetIdCounter();
+    resetEventSequence();
     const fullConfig = applyModeDefaults(createDefaultConfig(config));
     const state = initializeGame(fullConfig, partyChoices);
     const rng = new RngEngine(fullConfig.seed);
@@ -474,11 +476,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doManualOverride: (path, value) => {
     const { state } = get();
     if (!state) return;
-    let newState = { ...state };
+    // Safe immutable path update: shallow-copy each level of the path to avoid
+    // mutating shared nested references from the prior Zustand state. Also
+    // blocks __proto__/constructor/prototype path keys to prevent prototype
+    // pollution.
     const parts = path.split(".");
+    for (const p of parts) {
+      if (p === "__proto__" || p === "constructor" || p === "prototype") {
+        return;
+      }
+    }
+    let newState: any = { ...state };
     let obj: any = newState;
     for (let i = 0; i < parts.length - 1; i++) {
-      obj = obj[parts[i]];
+      const key = parts[i];
+      obj[key] = { ...obj[key] };
+      obj = obj[key];
     }
     obj[parts[parts.length - 1]] = value;
     newState = emitEvent(newState, "MANUAL_OVERRIDE", `Manual override: ${path} = ${JSON.stringify(value)}`, {
@@ -523,6 +536,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   doResetGame: () => {
+    // Reset module-level mutable state to prevent bleed across runs.
+    resetEventSequence();
+    resetIdCounter();
+    // Reset hybrid AI control state so a new run starts with a clean toggle.
+    useHybridStore.getState().resetAIControl();
     set({ state: null, rng: null, validationWarnings: [] });
   },
 
