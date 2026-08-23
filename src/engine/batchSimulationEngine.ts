@@ -561,7 +561,7 @@ export function downloadJSON(result: BatchResult): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `batch_${result.config.baseSeed}_${result.runs}runs_${Date.now()}.json`;
+  a.download = `batch_${result.config.baseSeed}_${result.runs.length}runs_${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -584,7 +584,7 @@ export function downloadCSV(result: BatchResult): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `batch_${result.config.baseSeed}_${result.runs}runs_${Date.now()}.csv`;
+  a.download = `batch_${result.config.baseSeed}_${result.runs.length}runs_${Date.now()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
