@@ -19,7 +19,6 @@
  * `runCombatToCompletion` calls `runCombatStep` in a synchronous loop.
  */
 import type { GameState } from "../types/gameState";
-import type { RngEngine } from "../utils/random";
 import type { CombatStrategy, ItemUsageStrategy } from "../types/batch";
 import { getLivingHeroes, getHeroById } from "./rulesEngine";
 import { executeMonsterTurn } from "./monsterAbilityEngine";
@@ -27,10 +26,20 @@ import { aiPlayHeroTurn, executeAiHeroDecision } from "./aiController";
 import { checkCombatEnd } from "./combatEngine";
 import { emitEvent } from "./eventLog";
 import { getItemUsageThreshold } from "./batchSimulationEngine";
+import { RngEngine } from "../utils/random";
 
 export interface CombatRunnerConfig {
   combatStrategy: CombatStrategy;
   itemUsageStrategy: ItemUsageStrategy;
+}
+
+/**
+ * Serialize the RNG engine's current state into the GameState.rng field.
+ * This is the atomic RNG ownership contract: every committed semantic
+ * transition returns state containing the post-action serialized RNG.
+ */
+function withRng(state: GameState, rng: RngEngine): GameState {
+  return { ...state, rng: rng.serialize() };
 }
 
 /**
@@ -118,17 +127,17 @@ export function runCombatStep(
   rng: RngEngine,
   config: CombatRunnerConfig
 ): GameState {
-  if (!state.combat || state.combat.combatResult) return state;
+  if (!state.combat || state.combat.combatResult) return withRng(state, rng);
 
   // Monster side
   if (state.combat.activeSide === "monster") {
-    return executeMonsterTurn(state, rng);
+    return withRng(executeMonsterTurn(state, rng), rng);
   }
 
   // Hero side
   if (state.combat.activeSide === "heroes") {
     const livingHeroes = getLivingHeroes(state);
-    if (livingHeroes.length === 0) return state;
+    if (livingHeroes.length === 0) return withRng(state, rng);
 
     const healThreshold = getItemUsageThreshold(config.itemUsageStrategy);
     const combat = state.combat!;
@@ -144,17 +153,17 @@ export function runCombatStep(
 
       // Post-action terminal check (for both attack and item use — Bomb can kill)
       newState = checkAndSetCombatEnd(newState);
-      if (newState.combat?.combatResult) return newState;
+      if (newState.combat?.combatResult) return withRng(newState, rng);
 
       if (decision.action === "use_item") {
         // Items are free actions — don't complete the turn.
         // The next runCombatStep call will find the same hero and get a new
         // decision (likely attack, since the item was consumed).
-        return newState;
+        return withRng(newState, rng);
       }
 
       // Attack or end_turn: complete the hero's turn canonically
-      return completeHeroTurn(newState, nextHeroId);
+      return withRng(completeHeroTurn(newState, nextHeroId), rng);
     }
 
     // All heroes have acted — this shouldn't happen if completeHeroTurn
@@ -165,13 +174,13 @@ export function runCombatStep(
       .every(id => combat.completedHeroTurns.includes(id));
 
     if (allDone) {
-      return completeHeroTurn(state, combat.heroTurnOrder.find(id => getHeroById(state, id)?.alive) ?? "");
+      return withRng(completeHeroTurn(state, combat.heroTurnOrder.find(id => getHeroById(state, id)?.alive) ?? ""), rng);
     }
 
-    return state;
+    return withRng(state, rng);
   }
 
-  return state;
+  return withRng(state, rng);
 }
 
 /**

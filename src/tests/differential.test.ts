@@ -81,8 +81,7 @@ describe("P2 Differential — headless vs store adapter", () => {
         maxHp: combat.monster.maxHp,
         alive: combat.monster.alive,
       } : null,
-      // rngStep excluded: headless runner doesn't persist RNG into state
-      // (P3 will make RNG atomic and re-enable this comparison)
+      rngStep: state.rng?.step ?? 0,
     };
   }
 
