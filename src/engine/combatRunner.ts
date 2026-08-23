@@ -1,17 +1,22 @@
 /**
- * SA-3 — Shared AI combat runner.
+ * SA-3 / P1 — Shared AI combat runner + canonical turn-completion.
+ *
+ * `completeHeroTurn` is the single canonical turn-completion transition.
+ * Both `runCombatStep` (headless) and the Zustand store (playable/sim/hybrid)
+ * call it to ensure identical turn-lifecycle behavior:
+ *   - Mark hero's turn complete
+ *   - Check if all living heroes are done
+ *   - If yes: increment turnCount/totalTurns ONCE, advance round, switch to monster
+ *
+ * `checkAndSetCombatEnd` is the single canonical post-action terminal check.
+ * Called after attacks AND item use (Bomb can kill).
  *
  * `runCombatStep` performs ONE iteration of the canonical combat loop:
  *   - monster side → executeMonsterTurn
- *   - hero side   → find next hero who hasn't acted, decide via aiPlayHeroTurn,
- *                   execute via executeAiHeroDecision, mark turn complete
- *   - all heroes done → advance to monster side (round++)
+ *   - hero side   → find next hero, decide via aiPlayHeroTurn, execute,
+ *                   check end, complete turn (items are free actions)
  *
- * `runCombatToCompletion` calls `runCombatStep` in a synchronous loop with a
- * safety cap. Batch simulation, Strategy Lab, and future headless paths use
- * this. Sim mode (useAutoPlay) and hybrid mode (CombatView) share the
- * canonical decision function (aiPlayHeroTurn) but drive step-wise through
- * the Zustand store for UI pacing and autosave integration.
+ * `runCombatToCompletion` calls `runCombatStep` in a synchronous loop.
  */
 import type { GameState } from "../types/gameState";
 import type { RngEngine } from "../utils/random";
@@ -29,8 +34,84 @@ export interface CombatRunnerConfig {
 }
 
 /**
+ * Canonical post-action terminal check. Sets combatResult if the combat
+ * has ended. Called after attacks AND item use (Bomb can kill the monster).
+ */
+export function checkAndSetCombatEnd(state: GameState): GameState {
+  if (!state.combat || state.combat.combatResult) return state;
+  const endCheck = checkCombatEnd(state);
+  if (endCheck.result !== "ongoing") {
+    const newState: GameState = {
+      ...state,
+      combat: { ...state.combat, combatResult: endCheck.result as any },
+    };
+    return emitEvent(newState, "COMBAT_ENDED", `Combat ended: ${endCheck.result}. ${endCheck.reason}`, {
+      details: { result: endCheck.result, reason: endCheck.reason },
+    });
+  }
+  return state;
+}
+
+/**
+ * Canonical turn-completion transition. Called after a hero performs their
+ * action (attack or end-turn). Marks the hero's turn complete, checks if
+ * all living heroes are done, and if so, increments turnCount/totalTurns
+ * ONCE (per round, not per hero), advances the round, and switches to the
+ * monster side.
+ *
+ * Both runCombatStep (headless) and the Zustand store (playable) call this
+ * function to ensure identical turn-lifecycle behavior.
+ */
+export function completeHeroTurn(state: GameState, heroId: string): GameState {
+  if (!state.combat || state.combat.combatResult) return state;
+
+  let newState = state;
+  const combat = newState.combat!;
+
+  // Mark hero as having completed their turn
+  if (!combat.completedHeroTurns.includes(heroId)) {
+    newState = {
+      ...newState,
+      combat: {
+        ...combat,
+        completedHeroTurns: [...combat.completedHeroTurns, heroId],
+      },
+    };
+  }
+
+  // Check if all living heroes have completed their turns
+  const allDone = newState.combat!.heroTurnOrder
+    .filter(id => getHeroById(newState, id)?.alive)
+    .every(id => newState.combat!.completedHeroTurns.includes(id));
+
+  if (allDone) {
+    const livingHeroIds = getLivingHeroes(newState).map(h => h.id);
+    newState = {
+      ...newState,
+      stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
+      combat: {
+        ...newState.combat!,
+        turnCount: newState.combat!.turnCount + 1,
+        round: newState.combat!.round + 1,
+        completedHeroTurns: [],
+        activeSide: "monster" as const,
+        heroTurnOrder: livingHeroIds,
+      },
+    };
+    newState = emitEvent(newState, "TURN_STARTED", `Round ${newState.combat!.round} begins. Monster's turn.`, {
+      details: { round: newState.combat!.round },
+    });
+  }
+
+  return newState;
+}
+
+/**
  * One iteration of the canonical combat loop. Returns the updated state.
  * If the state is terminal or has no combat, returns it unchanged.
+ *
+ * Items are free actions: using an item does NOT complete the hero's turn.
+ * The hero can use an item and then attack/end-turn in subsequent steps.
  */
 export function runCombatStep(
   state: GameState,
@@ -50,68 +131,44 @@ export function runCombatStep(
     if (livingHeroes.length === 0) return state;
 
     const healThreshold = getItemUsageThreshold(config.itemUsageStrategy);
-    let newState = state;
-    const combat = newState.combat!;
+    const combat = state.combat!;
 
     // Find the next hero who hasn't acted
     const nextHeroId = combat.heroTurnOrder.find(
-      id => !newState.combat!.completedHeroTurns.includes(id) && getHeroById(newState, id)?.alive
+      id => !combat.completedHeroTurns.includes(id) && getHeroById(state, id)?.alive
     );
 
     if (nextHeroId) {
-      const decision = aiPlayHeroTurn(newState, rng, nextHeroId, config.combatStrategy, { healThreshold });
-      newState = executeAiHeroDecision(newState, rng, nextHeroId, decision);
+      const decision = aiPlayHeroTurn(state, rng, nextHeroId, config.combatStrategy, { healThreshold });
+      let newState = executeAiHeroDecision(state, rng, nextHeroId, decision);
 
-      // Mark hero as having completed their turn
-      if (newState.combat && !newState.combat.completedHeroTurns.includes(nextHeroId)) {
-        newState = {
-          ...newState,
-          combat: {
-            ...newState.combat,
-            completedHeroTurns: [...newState.combat.completedHeroTurns, nextHeroId],
-          },
-        };
+      // Post-action terminal check (for both attack and item use — Bomb can kill)
+      newState = checkAndSetCombatEnd(newState);
+      if (newState.combat?.combatResult) return newState;
+
+      if (decision.action === "use_item") {
+        // Items are free actions — don't complete the turn.
+        // The next runCombatStep call will find the same hero and get a new
+        // decision (likely attack, since the item was consumed).
+        return newState;
       }
 
-      // Post-action terminal check (canonical — same as heroAbilityEngine)
-      if (newState.combat && !newState.combat.combatResult) {
-        const endCheck = checkCombatEnd(newState);
-        if (endCheck.result !== "ongoing") {
-          newState = {
-            ...newState,
-            combat: { ...newState.combat!, combatResult: endCheck.result as any },
-          };
-          newState = emitEvent(newState, "COMBAT_ENDED", `Combat ended: ${endCheck.result}. ${endCheck.reason}`, {
-            details: { result: endCheck.result, reason: endCheck.reason },
-          });
-        }
-      }
-
-      return newState;
+      // Attack or end_turn: complete the hero's turn canonically
+      return completeHeroTurn(newState, nextHeroId);
     }
 
-    // All heroes have acted — advance to monster side
-    const livingHeroIds = getLivingHeroes(newState).map(h => h.id);
-    const allDone = newState.combat!.heroTurnOrder
-      .filter(id => getHeroById(newState, id)?.alive)
-      .every(id => newState.combat!.completedHeroTurns.includes(id));
+    // All heroes have acted — this shouldn't happen if completeHeroTurn
+    // is working correctly (it advances the round when allDone). But if
+    // we get here (e.g., a hero died between actions), advance manually.
+    const allDone = combat.heroTurnOrder
+      .filter(id => getHeroById(state, id)?.alive)
+      .every(id => combat.completedHeroTurns.includes(id));
 
     if (allDone) {
-      return {
-        ...newState,
-        stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
-        combat: {
-          ...newState.combat!,
-          turnCount: newState.combat!.turnCount + 1,
-          round: newState.combat!.round + 1,
-          completedHeroTurns: [],
-          activeSide: "monster" as const,
-          heroTurnOrder: livingHeroIds,
-        },
-      };
+      return completeHeroTurn(state, combat.heroTurnOrder.find(id => getHeroById(state, id)?.alive) ?? "");
     }
 
-    return newState;
+    return state;
   }
 
   return state;

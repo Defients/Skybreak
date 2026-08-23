@@ -44,6 +44,7 @@ import { autosave, saveGame } from "../engine/saveLoad";
 import { emitEvent, resetEventSequence } from "../engine/eventLog";
 import { generateSeed, resetIdCounter } from "../utils/ids";
 import { useHybridStore } from "./hybridStore";
+import { completeHeroTurn, checkAndSetCombatEnd } from "../engine/combatRunner";
 
 function withRng(state: GameState, rng: RngEngine | null): GameState {
   if (!rng) return state;
@@ -197,31 +198,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     const { state: actionState } = executeHeroAction(state, rng, heroId, targetId);
-    let newState = actionState;
+    // Canonical post-action terminal check (shared with headless path)
+    let newState = checkAndSetCombatEnd(actionState);
+    if (newState.combat?.combatResult) {
+      const finalState = withRng(newState, rng);
+      set({ state: finalState });
+      autosave(finalState);
+      return;
+    }
+    // Canonical turn completion (shared with headless path)
+    newState = completeHeroTurn(newState, heroId);
 
-    const completedHeroTurns = [...newState.combat!.completedHeroTurns, heroId];
-    // Only require living heroes to have completed their turns
-    const allDone = newState.combat!.heroTurnOrder
-      .filter(id => getHeroById(newState, id)?.alive)
-      .every(id => completedHeroTurns.includes(id));
-
-    newState = {
-      ...newState,
-      stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
-      combat: {
-        ...newState.combat!,
-        turnCount: newState.combat!.turnCount + 1,
-        completedHeroTurns,
-      },
-    };
-
-    if (allDone) {
-      const combat = { ...newState.combat!, round: newState.combat!.round + 1, completedHeroTurns: [], activeSide: "monster" as const };
-      newState = emitEvent(newState, "TURN_STARTED", `Round ${combat.round} begins. Monster's turn.`, {
-        details: { round: combat.round },
-      });
-      newState = { ...newState, combat };
-      set({ state: withRng(newState, rng) });
+    // If all heroes done, auto-execute monster turn
+    if (newState.combat?.activeSide === "monster") {
+      const monsterReady = withRng(newState, rng);
+      set({ state: monsterReady });
       const { state: monsterState, rng: currentRng } = get();
       if (!monsterState || !currentRng) return;
       const afterMonster = executeMonsterTurn(monsterState, currentRng);
@@ -244,7 +235,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (state.combat.activeSide !== "heroes") return;
       if (state.combat.completedHeroTurns.includes(heroId)) return;
     }
-    const newState = useItem(state, heroId, itemName, targetId, rng ?? undefined);
+    const itemState = useItem(state, heroId, itemName, targetId, rng ?? undefined);
+    // Canonical post-action terminal check (Bomb can kill — shared with headless)
+    const newState = checkAndSetCombatEnd(itemState);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
     autosave(finalState);
@@ -263,27 +256,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
     if (heroId !== nextHeroId) return;
 
-    let newState = { ...state };
-    const combat = { ...newState.combat! };
-    // Add hero to completedHeroTurns if not already (handles skip-attack case)
-    if (!combat.completedHeroTurns.includes(heroId)) {
-      combat.completedHeroTurns = [...combat.completedHeroTurns, heroId];
-    }
-    // Only require living heroes to have completed their turns
-    const allDone = combat.heroTurnOrder
-      .filter(id => getHeroById(newState, id)?.alive)
-      .every(id => combat.completedHeroTurns.includes(id));
+    // Canonical turn completion (shared with headless path)
+    let newState = completeHeroTurn(state, heroId);
 
-    if (allDone) {
-      combat.round++;
-      combat.completedHeroTurns = [];
-      combat.activeSide = "monster";
-      newState = emitEvent(newState, "TURN_STARTED", `Round ${combat.round} begins. Monster's turn.`, {
-        details: { round: combat.round },
-      });
-      newState = { ...newState, combat };
-      set({ state: withRng(newState, rng) });
-      // Auto-execute monster turn
+    // If all heroes done, auto-execute monster turn
+    if (newState.combat?.activeSide === "monster") {
+      const monsterReady = withRng(newState, rng);
+      set({ state: monsterReady });
       const { state: monsterState, rng: currentRng } = get();
       if (!monsterState || !currentRng) return;
       const afterMonster = executeMonsterTurn(monsterState, currentRng);
@@ -293,7 +272,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    newState = { ...newState, combat };
     const finalState = withRng(newState, rng);
     set({ state: finalState });
     autosave(finalState);
