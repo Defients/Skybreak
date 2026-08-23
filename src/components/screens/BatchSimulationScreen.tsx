@@ -1238,7 +1238,7 @@ function ResultsView({
                   <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared}</td>
                   <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive}</td>
                   <td className="py-2 px-2 text-xs text-spire-muted">
-                    {run.partyComposition.map(p => p.className).join(" + ")}
+                    {run.partyComposition.map(p => `${p.className} (${p.specialization})`).join(" + ")}
                   </td>
                 </tr>
               ))}

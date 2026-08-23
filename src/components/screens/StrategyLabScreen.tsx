@@ -984,6 +984,64 @@ function ResultsView({
             <h3 className="section-heading mb-4">Top Party Compositions by Win Rate</h3>
             <PartyCompTable result={result} />
           </div>
+
+          {/* Specialization Performance */}
+          <div className="glass-card p-6">
+            <h3 className="section-heading mb-4">Win Rate by Specialization</h3>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart data={aggregateSpecStats(result)} margin={{ left: 20, right: 20, bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" tick={{ fill: "#d4af37", fontSize: 10 }} angle={-35} textAnchor="end" height={70} interval={0} />
+                <YAxis tick={{ fill: "#a0a0a0", fontSize: 11 }} domain={[0, 100]} />
+                <RTooltip
+                  contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(212,175,55,0.3)", borderRadius: "8px", fontSize: "12px" }}
+                  cursor={{ fill: "rgba(212,175,55,0.05)" }}
+                  formatter={(value: any, _name: any, props: any) => [`${value}% (${props?.payload?.appearances ?? 0} runs, ${props?.payload?.className ?? ""})`, "Win Rate"]}
+                />
+                <Bar dataKey="winRate" name="Win Rate %" radius={[4, 4, 0, 0]}>
+                  {aggregateSpecStats(result).map((entry, i) => {
+                    const classIdx = ALL_CLASSES.indexOf(entry.className as HeroClassName);
+                    return <Cell key={i} fill={CHART_COLORS[classIdx >= 0 ? classIdx : 0]} />;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Spec Performance Table */}
+          <div className="glass-card p-6">
+            <h3 className="section-heading mb-4">Specialization Breakdown</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-spire-muted text-xs border-b border-spire-border/40">
+                    <th className="text-left py-2 px-2">Specialization</th>
+                    <th className="text-left py-2 px-2">Class</th>
+                    <th className="text-right py-2 px-2">Runs</th>
+                    <th className="text-right py-2 px-2">Win Rate</th>
+                    <th className="text-right py-2 px-2">Avg Score</th>
+                    <th className="text-right py-2 px-2">Avg Survival</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aggregateSpecStats(result).map((s) => (
+                    <tr key={`${s.className}-${s.spec}`} className="border-b border-spire-border/20">
+                      <td className="py-2 px-2 text-spire-gold font-medium">{s.spec}</td>
+                      <td className="py-2 px-2 text-spire-muted">{s.className}</td>
+                      <td className="py-2 px-2 text-right text-spire-white">{s.appearances}</td>
+                      <td className="py-2 px-2 text-right">
+                        <span className={s.winRate >= 50 ? "text-spire-success" : s.winRate >= 30 ? "text-spire-gold" : "text-spire-danger"}>
+                          {s.winRate}%
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-right text-spire-white">{s.avgScore}</td>
+                      <td className="py-2 px-2 text-right text-spire-white">{s.avgSurvival}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1156,7 +1214,7 @@ function ComboDrillDown({ combo, comboIndex }: { combo: ComboResult; comboIndex:
                 <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared}</td>
                 <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive}</td>
                 <td className="py-2 px-2 text-xs text-spire-muted">
-                  {run.partyComposition.map((p) => p.className).join(" + ")}
+                  {run.partyComposition.map((p) => `${p.className} (${p.specialization})`).join(" + ")}
                 </td>
               </tr>
             ))}
@@ -1254,6 +1312,38 @@ function aggregateClassStats(result: StrategyLabResult) {
   });
 }
 
+function aggregateSpecStats(result: StrategyLabResult) {
+  const specAgg = new Map<string, { className: string; spec: string; appearances: number; victories: number; totalScore: number; totalSurvival: number }>();
+  for (const combo of result.combos) {
+    for (const run of combo.runs) {
+      const isWin = run.outcome === "victory";
+      for (const member of run.partyComposition) {
+        const key = `${member.className}|${member.specialization}`;
+        let entry = specAgg.get(key);
+        if (!entry) {
+          entry = { className: member.className, spec: member.specialization, appearances: 0, victories: 0, totalScore: 0, totalSurvival: 0 };
+          specAgg.set(key, entry);
+        }
+        entry.appearances++;
+        if (isWin) entry.victories++;
+        entry.totalScore += run.score.finalScore;
+        entry.totalSurvival += run.heroesAlive;
+      }
+    }
+  }
+  return [...specAgg.values()]
+    .map((e) => ({
+      label: `${e.spec}`,
+      className: e.className,
+      spec: e.spec,
+      appearances: e.appearances,
+      winRate: e.appearances > 0 ? Math.round((e.victories / e.appearances) * 100) : 0,
+      avgScore: e.appearances > 0 ? Math.round(e.totalScore / e.appearances) : 0,
+      avgSurvival: e.appearances > 0 ? parseFloat((e.totalSurvival / e.appearances).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.winRate - a.winRate);
+}
+
 function getUniqueCombatStrategies(result: StrategyLabResult): string[] {
   const set = new Set<string>();
   for (const combo of result.combos) {
@@ -1292,7 +1382,7 @@ function PartyCompTable({ result }: { result: StrategyLabResult }) {
 
   for (const combo of result.combos) {
     for (const run of combo.runs) {
-      const compKey = run.partyComposition.map((p) => p.className).sort().join(" + ");
+      const compKey = run.partyComposition.map((p) => `${p.className} (${p.specialization})`).sort().join(" + ");
       const entry = compMap.get(compKey) ?? { wins: 0, total: 0, avgScore: 0, scoreSum: 0, bestCombo: combo.comboLabel };
       entry.total++;
       if (run.outcome === "victory") entry.wins++;
