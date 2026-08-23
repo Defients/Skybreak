@@ -566,7 +566,7 @@ Can **redirect one monster attack** once per combat.
 
 | Spec | Ability |
 |---|---|
-| Sentinel (♣️/♠️) | Gain +4 max HP permanently and 3🔵 shields (each reduces 3 damage) |
+| Sentinel (♣️/♠️) | Gain +4 max HP (this combat only) and 3🔵 shields (each reduces 3 damage) |
 | Warden (♦️/♥️) | All Heroes gain 2🔵 shields (each reduces 2 damage, lasting 3 turns) |
 
 ### Roll Table
@@ -1111,7 +1111,7 @@ Mini-Bosses appear at specific rooms in Tiers 2 and 3. They are unique monsters 
 | 3 | Dragon Fear: all Heroes lose next turn |
 | 4 | Flame Breath: deal 6 damage to positions 2–3 |
 | 5 | Fly: become untargetable next turn and heal 4 HP |
-| 6 | Apocalypse: deal 8 damage to all and destroy all items |
+| 6 | Apocalypse: deal 6 damage to all and destroy all items |
 
 ### Titan
 

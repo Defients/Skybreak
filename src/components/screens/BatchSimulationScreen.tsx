@@ -341,7 +341,7 @@ const REST_STRATEGIES: { value: RestStrategy; label: string; desc: string; icon:
   { value: "full-heal", label: "Full Heal", desc: "Heal all to max", icon: "💚" },
   { value: "revive", label: "Revive", desc: "Revive dead, else heal", icon: "✨" },
   { value: "gold", label: "Gold", desc: "Roll for gold", icon: "💰" },
-  { value: "max-hp", label: "Max HP", desc: "+2 max HP to all", icon: "⬆️" },
+  { value: "max-hp", label: "Max HP", desc: "+2 max HP to all (heals if used)", icon: "⬆️" },
   { value: "smart", label: "Smart", desc: "Context-aware: revive, heal, max-HP, or gold", icon: "🧠" },
 ];
 

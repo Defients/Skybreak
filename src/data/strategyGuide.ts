@@ -294,7 +294,7 @@ export const STRATEGY_SECTIONS: StrategySection[] = [
       {
         type: "list",
         items: [
-          "Sentinel (Black): +4 max HP permanently and 3 shields (each reducing 3 damage). The tankiest option — 22 HP with 9 total damage reduction from shields. Best for sustained fights and absorbing boss hits.",
+          "Sentinel (Black): +4 max HP (this combat only) and 3 shields (each reducing 3 damage). The tankiest option — 22 HP with 9 total damage reduction from shields during combat. Best for sustained fights and absorbing boss hits.",
           "Warden (Red): All heroes gain 2 shields (each reducing 2 damage) lasting 3 turns. Party-wide protection — 6 total shields across 3 heroes. Best vs multi-hit or AoE monsters.",
         ],
       },

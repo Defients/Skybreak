@@ -93,8 +93,19 @@ export function resolveRestChoice(
     });
   } else if (choice === 4) {
     if (newState.party.maxHpBoostUsed) {
-      newState = emitEvent(newState, "REST_CHOICE", "Max HP boost already used this run.", {
-        details: { choice: 4, effect: "already_used" },
+      // Fall back to full heal instead of wasting the rest
+      newState = {
+        ...newState,
+        party: {
+          ...newState.party,
+          heroes: newState.party.heroes.map(h => ({
+            ...h,
+            currentHp: h.alive ? h.maxHp : h.currentHp,
+          })),
+        },
+      };
+      newState = emitEvent(newState, "REST_CHOICE", "Max HP boost already used. Party fully healed instead.", {
+        details: { choice: 4, effect: "full_heal_fallback" },
       });
       return newState;
     }

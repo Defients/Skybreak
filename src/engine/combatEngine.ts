@@ -1117,6 +1117,9 @@ export function cleanupCombat(state: GameState): GameState {
     buffs: h.buffs.filter(b => b.durationType === "uses" && b.duration > 0),
     debuffs: h.debuffs.filter(d => d.duration > 0 && d.durationType === "turns" && d.duration < 100),
     pet: undefined,
+    // Reset temporary max HP boosts (e.g. Sentinel's +4) back to baseMaxHp
+    maxHp: h.baseMaxHp,
+    currentHp: Math.min(h.baseMaxHp, h.currentHp),
   }));
 
   let newState: GameState = {

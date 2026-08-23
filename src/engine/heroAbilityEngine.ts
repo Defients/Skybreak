@@ -1156,8 +1156,8 @@ function executeSpecAbility(
           id: generateId("pet_wolf"),
           type: "wolf",
           name: "Wolf",
-          currentHp: 5,
-          maxHp: 5,
+          currentHp: 7,
+          maxHp: 7,
           alive: true,
         };
         const updatedHeroes = newState.party.heroes.map(h =>
@@ -1184,19 +1184,19 @@ function executeSpecAbility(
 
     case "Guardian":
       if (spec === "Sentinel") {
+        // +4 max HP is temporary (this combat only) — do NOT modify baseMaxHp
         const updatedHeroes = newState.party.heroes.map(h =>
           h.id === hero.id ? {
             ...h,
             maxHp: h.maxHp + 4,
             currentHp: h.currentHp + 4,
-            baseMaxHp: h.baseMaxHp + 4,
           } : h
         );
         newState = { ...newState, party: { ...newState.party, heroes: updatedHeroes } };
         for (let i = 0; i < 3; i++) {
           newState = addToken(newState, hero.id, createShieldToken(3), false);
         }
-        newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name}: Sentinel specialization! +4 max HP and 3 shields!`, { actorId: hero.id, details: { description: CLASS_DATA[hero.className].specializations.black.ability } });
+        newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name}: Sentinel specialization! +4 max HP (this combat) and 3 shields!`, { actorId: hero.id, details: { description: CLASS_DATA[hero.className].specializations.black.ability } });
       } else if (spec === "Warden") {
         for (const h of getLivingHeroes(newState)) {
           for (let i = 0; i < 2; i++) {

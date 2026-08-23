@@ -366,7 +366,7 @@ export const MONSTERS: MonsterData[] = [
       { roll: 3, name: "Dragon Fear", effect: "all Heroes lose next turn", description: "All Heroes lose next turn", effectKey: "dragon_fear", mechanics: { allLoseNextTurn: true } },
       { roll: 4, name: "Flame Breath", effect: "deal 6 damage to positions 2–3", description: "Deal 6 damage to positions 2-3", effectKey: "dragon_flame_breath", mechanics: { damage: 6, target: "position", positionRange: [2, 3] } },
       { roll: 5, name: "Fly", effect: "become untargetable next turn and heal 4 HP", description: "Become untargetable next turn and heal 4 HP", effectKey: "fly", mechanics: { untargetableNextTurn: true, heal: 4 } },
-      { roll: 6, name: "Apocalypse", effect: "deal 8 damage to all and destroy all items", description: "Deal 8 damage to all and destroy all items", effectKey: "apocalypse", mechanics: { damage: 8, target: "all", destroyItem: "all" } },
+      { roll: 6, name: "Apocalypse", effect: "deal 6 damage to all and destroy all items", description: "Deal 6 damage to all and destroy all items", effectKey: "apocalypse", mechanics: { damage: 6, target: "all", destroyItem: "all" } },
     ],
   },
   {

@@ -84,7 +84,6 @@ export function createHero(
   let maxHp = classData.baseHp;
 
   if (difficulty === "easy") maxHp += 2;
-  if (className === "Guardian" && spec === "Sentinel") maxHp += 4;
 
   const commonWeapon = getCommonWeapon(className);
   const weapon: WeaponInstance = {

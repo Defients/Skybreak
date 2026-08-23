@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { executeHeroAction, useItem } from "../engine/heroAbilityEngine";
 import { executeMonsterTurn } from "../engine/monsterAbilityEngine";
-import { startCombat } from "../engine/combatEngine";
+import { startCombat, cleanupCombat } from "../engine/combatEngine";
 import { initializeGame, createDefaultConfig, type PartySetupChoice } from "../engine/gameState";
 import { RngEngine } from "../utils/random";
 import { getLivingHeroes, getHeroById } from "../engine/rulesEngine";
@@ -470,7 +470,7 @@ describe("Hero Ability Engine — Pet Mechanics", () => {
         expect(updatedTracker?.pet).toBeDefined();
         expect(updatedTracker?.pet?.type).toBe("wolf");
         expect(updatedTracker?.pet?.alive).toBe(true);
-        expect(updatedTracker?.pet?.currentHp).toBe(5);
+        expect(updatedTracker?.pet?.currentHp).toBe(7);
         return;
       }
     }
@@ -542,7 +542,7 @@ describe("Hero Ability Engine — Specialization Triggers", () => {
     }
   });
 
-  it("Sentinel gains +4 max HP and 3 shields on match", () => {
+  it("Sentinel gains +4 max HP (temporary, this combat only) and 3 shields on match", () => {
     // spades = black spec = Sentinel (Guardian black spec)
     const sentinelParty: PartySetupChoice[] = [
       { className: "Guardian", suit: "spades", position: 1 },
@@ -555,17 +555,55 @@ describe("Hero Ability Engine — Specialization Triggers", () => {
     const combatState = startCombat(state, rng);
     const heroId = combatState.party.heroes[0].id;
     const originalMaxHp = getHeroById(combatState, heroId)!.maxHp;
+    const originalBaseMaxHp = getHeroById(combatState, heroId)!.baseMaxHp;
 
     for (let i = 0; i < 30; i++) {
       const result = executeHeroAction(combatState, new RngEngine(`sent-${i}`), heroId, combatState.combat!.monster.id);
       const specEvents = result.state.log.filter(e => e.type === "ABILITY_TRIGGERED" && e.summary.includes("Sentinel specialization"));
       if (specEvents.length > 0) {
         const hero = getHeroById(result.state, heroId);
+        // +4 max HP is temporary (applied to maxHp, NOT baseMaxHp)
         expect(hero?.maxHp).toBe(originalMaxHp + 4);
+        expect(hero?.baseMaxHp).toBe(originalBaseMaxHp); // baseMaxHp unchanged
         expect(hero?.tokens.filter(t => t.type === "shield").length).toBeGreaterThanOrEqual(3);
         return;
       }
     }
+  });
+
+  it("Sentinel +4 max HP does NOT persist after cleanupCombat", () => {
+    const sentinelParty: PartySetupChoice[] = [
+      { className: "Guardian", suit: "spades", position: 1 },
+      { className: "Manipulator", suit: "hearts", position: 2 },
+      { className: "Tracker", suit: "clubs", position: 3 },
+    ];
+    const config = createDefaultConfig({ seed: "sentinel-cleanup-test" });
+    const state = initializeGame(config, sentinelParty);
+    const rng = new RngEngine("sentinel-cleanup-test");
+    const combatState = startCombat(state, rng);
+    const heroId = combatState.party.heroes[0].id;
+    const originalMaxHp = getHeroById(combatState, heroId)!.maxHp;
+    const originalBaseMaxHp = getHeroById(combatState, heroId)!.baseMaxHp;
+
+    // Trigger Sentinel spec by attacking until it fires
+    let newState = combatState;
+    for (let i = 0; i < 30; i++) {
+      const result = executeHeroAction(newState, new RngEngine(`sent-cln-${i}`), heroId, newState.combat!.monster.id);
+      newState = result.state;
+      const specEvents = newState.log.filter(e => e.type === "ABILITY_TRIGGERED" && e.summary.includes("Sentinel specialization"));
+      if (specEvents.length > 0) break;
+    }
+
+    // Verify maxHp was boosted during combat (originalMaxHp includes Tower Shield +1)
+    const heroDuringCombat = getHeroById(newState, heroId);
+    expect(heroDuringCombat?.maxHp).toBe(originalMaxHp + 4);
+
+    // Cleanup combat
+    const cleanedState = cleanupCombat(newState);
+    const heroAfterCleanup = getHeroById(cleanedState, heroId);
+    // maxHp should be reset to baseMaxHp after cleanup
+    expect(heroAfterCleanup?.maxHp).toBe(originalBaseMaxHp);
+    expect(heroAfterCleanup?.baseMaxHp).toBe(originalBaseMaxHp);
   });
 
   it("Warden gives all allies 2 shields on match", () => {

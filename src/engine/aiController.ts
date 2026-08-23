@@ -81,7 +81,7 @@ export function aiPlayHeroTurn(
 
     case "random-legal": {
       const roll = rng.rollD6("ai_random_choice").total;
-      if (roll <= 2 && hero.items.length > 0) {
+      if (roll === 1 && hero.items.length > 0) {
         const itemIdx = Math.floor(
           (rng.rollD6("ai_item_pick").total / 6) * hero.items.length
         );
@@ -90,7 +90,7 @@ export function aiPlayHeroTurn(
           return { action: "use_item", itemName: randomItem.name, targetId: heroId };
         }
       }
-      if (roll <= 3) {
+      if (roll === 2) {
         return { action: "end_turn" };
       }
       return { action: "attack", targetId: monsterId };

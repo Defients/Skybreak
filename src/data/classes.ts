@@ -104,7 +104,7 @@ export const CLASS_DATA: Record<HeroClassName, ClassData> = {
     specializations: {
       black: {
         name: "Sentinel",
-        ability: "Gain +4 max HP permanently and 3🔵 shields, each reducing 3 damage",
+        ability: "Gain +4 max HP (this combat only) and 3🔵 shields, each reducing 3 damage",
         desc: "Become an unbreakable fortress of steel",
       },
       red: {
