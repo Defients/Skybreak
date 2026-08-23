@@ -19,9 +19,10 @@ const assetPathMap: Record<string, string> = {};
 for (const [path, url] of Object.entries(allAssets)) {
   // Store by full path
   assetPathMap[path] = url;
-  // Store by normalized filename (lowercase, no extension)
+  // Store by normalized filename (lowercase, no extension, dashes→underscores)
+  // Uses the same normalizeName function as lookup() so keys match queries.
   const filename = path.split("/").pop() || path;
-  const normalized = filename.toLowerCase().replace(/\.[^.]+$/, "");
+  const normalized = normalizeName(filename);
   if (!assetMap[normalized]) {
     assetMap[normalized] = url;
   }
@@ -145,39 +146,54 @@ export function getSpecImage(name: string): string | null {
 // ============================================================
 
 const MONSTER_MAP: Record<string, string> = {
-  "Abyssal Ooze": "abyssal_ooze",
-  Treant: "treant",
-  "Glimmering Sprite": "glimmering_sprite",
-  "Shadowy Assassin": "shadowy_assassin",
-  Banshee: "banshee",
-  "Lunar Witch": "lunar_shade",
-  "Arcane Elemental": "arcane_elemental",
-  Phoenix: "phoenix",
-  Gargoyle: "gargoyle",
-  "Cursed Knight": "cursed_knight",
-  Minotaur: "minotaur",
-  Chimera: "chimera",
-  "Ember Drake": "ember_drake",
-  "Frost Wyrm": "frost_wyrm",
-  "Nano Prototype": "nano_prototype",
+  "Abyssal Ooze": "astril_sludge",
+  Treant: "rootbound_treant",
+  "Glimmering Sprite": "prism",
+  "Shadowy Assassin": "veilblade_stalker",
+  Banshee: "moonbound_oracle",
+  "Lunar Witch": "moonbound_oracle",
+  "Arcane Elemental": "resonane_elemental",
+  Phoenix: "emberglass_phoenix",
+  Gargoyle: "vault_gargoyle",
+  "Cursed Knight": "oathbroken_ascender",
+  Minotaur: "mazehorn",
+  Chimera: "triune_chimera",
+  "Ember Drake": "emberglass_drake",
+  "Frost Wyrm": "rimeglass_wyrm",
+  "Nano Prototype": "vy_assimilator_prototype",
   "Laser Turret": "laser_turret",
-  Behemoth: "behemoth",
-  Cyclops: "cyclops",
-  Dragon: "dragon",
-  Titan: "titan",
-  "Vyridian, the Astril Conductor": "vyridion",
+  Behemoth: "starfall_behemoth",
+  Cyclops: "oculus_giant",
+  Dragon: "skyvault_dragon",
+  Titan: "threshold_titan",
+  "Vyridian, the Astril Conductor": "vyridian",
   // Legacy alias — saves created before the Astrizda canon migration
-  "Apexus, the Astral Overlord": "vyridion",
+  "Apexus, the Astral Overlord": "vyridian",
 };
 
 export function getMonsterImage(name: string): string | null {
   const key = MONSTER_MAP[name] ?? normalizeName(name);
-  // Prefer webp for Vyridion
-  if (key === "vyridion") {
+  // Prefer webp for Vyridian
+  if (key === "vyridian") {
     const webp = lookupPath("assets/monsters/Vyridion.webp");
     if (webp) return webp;
   }
-  return lookup(key);
+  // Try direct lookup
+  let url = lookup(key);
+  if (url) return url;
+  // Try with _portrait suffix (image files are named "<monster>-portrait.png")
+  url = lookup(`${key}_portrait`);
+  if (url) return url;
+  // Some files have concatenated names (e.g. "veilblade_stalkerrootbound_treant")
+  // Try lookup with "rootbound_treant" appended for the affected monsters
+  if (key === "veilblade_stalker" || key === "moonbound_oracle") {
+    url = lookup(`${key}rootbound_treant_portrait`);
+    if (url) return url;
+  }
+  // Try the full normalized name with _portrait
+  const fullNorm = normalizeName(name);
+  url = lookup(`${fullNorm}_portrait`);
+  return url;
 }
 
 export function getMonsterSvgIcon(name: string): string | null {
