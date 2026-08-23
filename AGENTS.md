@@ -38,6 +38,14 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   after visual/audio quality review. This is a ~200 MB → ~50 MB reduction
   but requires user approval for quality tradeoffs.
 
+## Structural Decomposition Findings (SA-12, deferred)
+- Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),
+  CombatView.tsx (71 KB), heroAbilityEngine.ts (66 KB), StrategyLabScreen.tsx (62 KB).
+- 301 tests now protect behavior across all paths, making decomposition safe.
+- RECOMMENDATION: Split per-class hero/monster ability resolvers into
+  separate files, extract MerchantView/CombatView sub-components. Deferred
+  to user direction — no behavior change, pure maintainability improvement.
+
 ## Architecture (verified at HEAD 7fad9ef)
 - `src/engine/` — pure engine layer (GameState in → GameState out).
 - `src/app/` — Zustand stores: `gameStore` (live game), `batchStore`, `strategyLabStore`, `hybridStore`.
