@@ -25,6 +25,19 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   StrategyLabScreen (127.42 KB gz), WikiScreen (66.40 KB gz), others < 11 KB gz
 - Tests: 301/301 pass (20 files), ~39s total
 
+## Asset Optimization Findings (SA-11, measurement-driven)
+- 30+ monster portrait PNGs at 2.5–3.1 MB each (~90 MB total). Converting
+  to WebP (quality 80) would reduce to ~0.5–0.8 MB each (~60–80% reduction).
+- 2 WebP backgrounds (shopkeeper_room 10.4 MB, spire 8.5 MB) — already WebP
+  but oversized. Re-encoding at quality 70 would roughly halve them.
+- 5 audio MP3s at 2.8–5.6 MB each (~20 MB total). Re-encoding at 128kbps
+  would reduce by ~50%.
+- JS is already code-split with lazy-loaded screens. Initial gzipped
+  transfer (~158 KB) is reasonable. No JS optimization needed.
+- RECOMMENDATION: Batch-convert PNGs to WebP and re-encode audio, but only
+  after visual/audio quality review. This is a ~200 MB → ~50 MB reduction
+  but requires user approval for quality tradeoffs.
+
 ## Architecture (verified at HEAD 7fad9ef)
 - `src/engine/` — pure engine layer (GameState in → GameState out).
 - `src/app/` — Zustand stores: `gameStore` (live game), `batchStore`, `strategyLabStore`, `hybridStore`.
