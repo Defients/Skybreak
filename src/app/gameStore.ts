@@ -468,7 +468,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let obj: any = newState;
     for (let i = 0; i < parts.length - 1; i++) {
       const key = parts[i];
-      obj[key] = { ...obj[key] };
+      // Preserve arrays: spreading an array into an object ({ ...arr })
+      // converts it to an object with string keys, breaking .map/.filter.
+      // Use [...arr] for arrays, { ...obj } for plain objects.
+      obj[key] = Array.isArray(obj[key]) ? [...obj[key]] : { ...obj[key] };
       obj = obj[key];
     }
     obj[parts[parts.length - 1]] = value;
@@ -494,7 +497,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   doLoadState: (loadedState) => {
-    const rng = RngEngine.deserialize(loadedState.rng);
+    // Validate the loaded state has the minimum required shape
+    if (!loadedState || typeof loadedState !== "object") return;
+    if (!loadedState.party || !Array.isArray(loadedState.party.heroes)) return;
+    if (!loadedState.meta || !loadedState.spire) return;
+    // Reconstruct RNG from serialized state (or create a fallback)
+    let rng: RngEngine;
+    try {
+      rng = loadedState.rng
+        ? RngEngine.deserialize(loadedState.rng)
+        : new RngEngine(`fallback-${Date.now()}`);
+    } catch {
+      rng = new RngEngine(`fallback-${Date.now()}`);
+    }
     set({ state: loadedState, rng, validationWarnings: [] });
   },
 
