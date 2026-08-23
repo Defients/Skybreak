@@ -1,6 +1,7 @@
 import type { GameState, SaveData } from "../types/gameState";
 import { WEAPONS } from "../data/weapons";
 import { ITEMS } from "../data/items";
+import { RngEngine } from "../utils/random";
 
 const STORAGE_KEY = "skyward_ascent_saves";
 const AUTOSAVE_KEY = "skyward_ascent_autosave";
@@ -142,12 +143,57 @@ export function autosave(state: GameState): boolean {
   }
 }
 
+/**
+ * Structural validation for a SaveData object. Checks that the parsed JSON
+ * has the required top-level fields and that gameState has the minimum
+ * required shape (party with heroes, meta, spire). Returns true if valid.
+ */
+function isValidSaveShape(data: unknown): data is SaveData {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  if (typeof d.version !== "string") return false;
+  if (typeof d.savedAt !== "string") return false;
+  if (typeof d.name !== "string") return false;
+  const gs = d.gameState;
+  if (typeof gs !== "object" || gs === null) return false;
+  const g = gs as Record<string, unknown>;
+  // Minimum required gameState fields.
+  if (typeof g.phase !== "string") return false;
+  if (typeof g.party !== "object" || g.party === null) return false;
+  const party = g.party as Record<string, unknown>;
+  if (!Array.isArray(party.heroes)) return false;
+  if (typeof g.meta !== "object" || g.meta === null) return false;
+  if (typeof g.spire !== "object" || g.spire === null) return false;
+  // RNG must be present and well-shaped (or absent, which is tolerated).
+  if (g.rng !== undefined && g.rng !== null) {
+    if (typeof g.rng !== "object") return false;
+    const rng = g.rng as Record<string, unknown>;
+    if (typeof rng.seed !== "string") return false;
+    if (typeof rng.step !== "number") return false;
+  }
+  return true;
+}
+
 export function loadSave(saveData: SaveData): GameState | null {
   try {
+    if (!isValidSaveShape(saveData)) {
+      console.error("Save data failed structural validation");
+      return null;
+    }
     if (saveData.version !== VERSION) {
       console.warn(`Save version mismatch: ${saveData.version} vs ${VERSION}`);
     }
-    return migrateLegacyState(saveData.gameState);
+    const migrated = migrateLegacyState(saveData.gameState);
+    // Validate that the RNG can be deserialized (throws on malformed data).
+    if (migrated.rng) {
+      try {
+        RngEngine.deserialize(migrated.rng);
+      } catch (e) {
+        console.error("Save data has corrupt RNG, clearing RNG field:", e);
+        return { ...migrated, rng: undefined as any };
+      }
+    }
+    return migrated;
   } catch (e) {
     console.error("Failed to load save:", e);
     return null;
@@ -198,8 +244,9 @@ export function exportSave(state: GameState): string {
 
 export function importSave(json: string): GameState | null {
   try {
-    const data = JSON.parse(json) as SaveData;
-    return loadSave(data);
+    const data = JSON.parse(json);
+    // loadSave performs structural + semantic validation.
+    return loadSave(data as SaveData);
   } catch {
     return null;
   }
