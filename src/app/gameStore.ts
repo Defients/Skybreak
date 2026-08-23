@@ -308,93 +308,104 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   doEnterMerchant: () => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = enterMerchant(state);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doBuyItem: (itemName, heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = buyItem(state, itemName, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doBuyHealing: (serviceName, targetHeroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = buyHealing(state, serviceName, targetHeroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doBuyUpgrade: (upgradeName, heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = buyUpgrade(state, upgradeName, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doBuyWeapon: (weaponName, heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = buyWeapon(state, weaponName, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doUpgradeWeapon: (heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = upgradeWeapon(state, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doReforgeWeapon: (heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = reforgeWeapon(state, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doRepairWeapon: (heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = repairWeapon(state, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doBuyEnchantment: (enchantmentName, heroId) => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = buyEnchantment(state, enchantmentName, heroId);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doAutoBuy: () => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = autoBuy(state);
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doLeaveMerchant: () => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     const newState = leaveMerchant(state);
     const resolved = markRoomResolved(newState);
     const advanced = advanceRoom(resolved);
-    set({ state: advanced });
-    autosave(advanced);
+    const finalState = withRng(advanced, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doRestChoice: (choice) => {
@@ -409,16 +420,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   doConfirmTierTransition: () => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     if (state.phase !== "tier_transition") return;
     const newState = { ...state, phase: "exploration" as const };
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doResolveRoom: () => {
-    const { state } = get();
+    const { state, rng } = get();
     if (!state) return;
     let newState = { ...state };
 
@@ -454,8 +466,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       });
     }
 
-    set({ state: newState });
-    autosave(newState);
+    const finalState = withRng(newState, rng);
+    set({ state: finalState });
+    autosave(finalState);
   },
 
   doManualOverride: (path, value) => {
