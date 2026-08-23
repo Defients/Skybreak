@@ -26,7 +26,7 @@ import {
   cleanupCombat,
   grantRewards,
 } from "./combatEngine";
-import { runCombatStep } from "./combatRunner";
+import { runCombatStep, completeHeroTurn } from "./combatRunner";
 import {
   enterMerchant,
   buyItem,
@@ -106,8 +106,10 @@ async function autoPlayCombat(
   config: BatchConfig
 ): Promise<GameState> {
   let newState = state;
-  const maxIterations = 200;
+  const maxIterations = 500;
   let safetyCounter = 0;
+  let lastProgressKey = "";
+  let noProgressCount = 0;
   const runnerConfig = {
     combatStrategy: config.combatStrategy,
     itemUsageStrategy: config.itemUsageStrategy,
@@ -119,7 +121,31 @@ async function autoPlayCombat(
     if (safetyCounter % 3 === 0) {
       await nextPaint();
     }
+    const beforeStep = newState;
     newState = runCombatStep(newState, rng, runnerConfig);
+
+    // No-progress detection: if the state hasn't meaningfully changed
+    // (same completedHeroTurns, same round, same combatResult), we might
+    // be stuck in a loop (e.g., AI keeps deciding use_item but item is
+    // unavailable). Force the current hero's turn to complete.
+    const progressKey = `${newState.combat?.round ?? 0}:${newState.combat?.completedHeroTurns.length ?? 0}:${newState.combat?.combatResult ?? ""}`;
+    if (progressKey === lastProgressKey) {
+      noProgressCount++;
+      if (noProgressCount >= 3) {
+        // Force-complete the current hero's turn to break the loop
+        const nextHeroId = newState.combat?.heroTurnOrder.find(
+          id => !newState.combat!.completedHeroTurns.includes(id) &&
+            getHeroById(newState, id)?.alive
+        );
+        if (nextHeroId) {
+          newState = completeHeroTurn(newState, nextHeroId);
+        }
+        noProgressCount = 0;
+      }
+    } else {
+      noProgressCount = 0;
+      lastProgressKey = progressKey;
+    }
   }
 
   return newState;

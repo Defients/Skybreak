@@ -191,7 +191,7 @@ export function runCombatToCompletion(
   state: GameState,
   rng: RngEngine,
   config: CombatRunnerConfig,
-  maxIterations = 200
+  maxIterations = 500
 ): GameState {
   let newState = state;
   let safety = 0;
