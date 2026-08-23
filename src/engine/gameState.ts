@@ -27,24 +27,12 @@ export function createDefaultConfig(
     rngMode: "seeded",
     speed: "readable",
     logLevel: "normal",
-    showAiReasoning: false, // NOT YET IMPLEMENTED — declared in types, not surfaced in UI, not consumed by engine.
     showDamageMath: false,
     showCardFlips: true,
     showDiceRolls: true,
     allowManualOverride: true,
     allowIllegalOverride: false,
     autoResolveTrivialChoices: false,
-    // NOT YET IMPLEMENTED — declared in types, not surfaced in UI, not evaluated by engine.
-    stopConditions: {
-      onHeroDeath: false,
-      onPartyDeath: true,
-      onMerchant: false,
-      onEliteRoom: false,
-      onMiniBoss: false,
-      onFinalBoss: true,
-      onVictory: true,
-      onRuleAmbiguity: false,
-    },
     ...overrides,
   };
 }
@@ -55,12 +43,6 @@ export function applyModeDefaults(config: SimulationConfig): SimulationConfig {
       ...config,
       allowManualOverride: true,
       allowIllegalOverride: true,
-    };
-  }
-  if (config.mode === "companion") {
-    return {
-      ...config,
-      showAiReasoning: true,
     };
   }
   return config;

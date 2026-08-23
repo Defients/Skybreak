@@ -12,17 +12,6 @@ export type MonsterControl = "rules" | "manual";
 
 export type RngMode = "seeded" | "manual" | "physical";
 
-export interface StopConditions {
-  onHeroDeath: boolean;
-  onPartyDeath: boolean;
-  onMerchant: boolean;
-  onEliteRoom: boolean;
-  onMiniBoss: boolean;
-  onFinalBoss: boolean;
-  onVictory: boolean;
-  onRuleAmbiguity: boolean;
-}
-
 export interface BatchConfig {
   enabled: boolean;
   runs: number;
@@ -38,13 +27,11 @@ export interface SimulationConfig {
   rngMode: RngMode;
   speed: SimSpeed;
   logLevel: LogLevel;
-  showAiReasoning: boolean;
   showDamageMath: boolean;
   showCardFlips: boolean;
   showDiceRolls: boolean;
   allowManualOverride: boolean;
   allowIllegalOverride: boolean;
   autoResolveTrivialChoices: boolean;
-  stopConditions: StopConditions;
   batch?: BatchConfig;
 }
