@@ -155,11 +155,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { state, rng } = get();
     if (!state || !rng || !state.combat) return;
     if (state.combat.activeSide !== "monster") return;
-    // Monster goes first per rules 6.2 — auto-execute monster turn
-    const afterMonster = executeMonsterTurn(state, rng);
-    const finalState = withRng(afterMonster, rng);
-    set({ state: finalState });
-    autosave(finalState);
+    // Monster goes first per rules 6.2.
+    // In simulation mode, execute synchronously (no UI pacing needed).
+    // In playable mode, defer so UI can show "Active Side: monster".
+    if (state.settings.mode === "simulation") {
+      const afterMonster = executeMonsterTurn(state, rng);
+      const finalState = withRng(afterMonster, rng);
+      set({ state: finalState });
+      autosave(finalState);
+      return;
+    }
+    setTimeout(() => {
+      const { state: monsterState, rng: currentRng } = get();
+      if (!monsterState || !currentRng) return;
+      if (monsterState.combat?.activeSide !== "monster") return;
+      if (monsterState.combat?.combatResult) return;
+      const afterMonster = executeMonsterTurn(monsterState, currentRng);
+      const finalState = withRng(afterMonster, currentRng);
+      set({ state: finalState });
+      autosave(finalState);
+    }, 800);
   },
 
   doFlipCards: (actorId) => {
@@ -209,16 +224,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Canonical turn completion (shared with headless path)
     newState = completeHeroTurn(newState, heroId);
 
-    // If all heroes done, auto-execute monster turn
+    // If all heroes done, execute monster turn.
+    // In simulation mode: synchronous (no UI pacing needed).
+    // In playable mode: deferred so UI can show "Active Side: monster".
     if (newState.combat?.activeSide === "monster") {
       const monsterReady = withRng(newState, rng);
       set({ state: monsterReady });
-      const { state: monsterState, rng: currentRng } = get();
-      if (!monsterState || !currentRng) return;
-      const afterMonster = executeMonsterTurn(monsterState, currentRng);
-      const monsterFinal = withRng(afterMonster, currentRng);
-      set({ state: monsterFinal });
-      autosave(monsterFinal);
+      if (state.settings.mode === "simulation") {
+        const { state: monsterState, rng: currentRng } = get();
+        if (!monsterState || !currentRng) return;
+        const afterMonster = executeMonsterTurn(monsterState, currentRng);
+        const monsterFinal = withRng(afterMonster, currentRng);
+        set({ state: monsterFinal });
+        autosave(monsterFinal);
+        return;
+      }
+      setTimeout(() => {
+        const { state: monsterState, rng: currentRng } = get();
+        if (!monsterState || !currentRng) return;
+        if (monsterState.combat?.activeSide !== "monster") return;
+        if (monsterState.combat?.combatResult) return;
+        const afterMonster = executeMonsterTurn(monsterState, currentRng);
+        const monsterFinal = withRng(afterMonster, currentRng);
+        set({ state: monsterFinal });
+        autosave(monsterFinal);
+      }, 800);
       return;
     }
 
@@ -259,16 +289,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Canonical turn completion (shared with headless path)
     let newState = completeHeroTurn(state, heroId);
 
-    // If all heroes done, auto-execute monster turn
+    // If all heroes done, execute monster turn.
+    // In simulation mode: synchronous. In playable mode: deferred.
     if (newState.combat?.activeSide === "monster") {
       const monsterReady = withRng(newState, rng);
       set({ state: monsterReady });
-      const { state: monsterState, rng: currentRng } = get();
-      if (!monsterState || !currentRng) return;
-      const afterMonster = executeMonsterTurn(monsterState, currentRng);
-      const monsterFinal = withRng(afterMonster, currentRng);
-      set({ state: monsterFinal });
-      autosave(monsterFinal);
+      if (state.settings.mode === "simulation") {
+        const { state: monsterState, rng: currentRng } = get();
+        if (!monsterState || !currentRng) return;
+        const afterMonster = executeMonsterTurn(monsterState, currentRng);
+        const monsterFinal = withRng(afterMonster, currentRng);
+        set({ state: monsterFinal });
+        autosave(monsterFinal);
+        return;
+      }
+      setTimeout(() => {
+        const { state: monsterState, rng: currentRng } = get();
+        if (!monsterState || !currentRng) return;
+        if (monsterState.combat?.activeSide !== "monster") return;
+        if (monsterState.combat?.combatResult) return;
+        const afterMonster = executeMonsterTurn(monsterState, currentRng);
+        const monsterFinal = withRng(afterMonster, currentRng);
+        set({ state: monsterFinal });
+        autosave(monsterFinal);
+      }, 800);
       return;
     }
 
