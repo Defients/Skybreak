@@ -1106,6 +1106,43 @@ function ResultsView({
   const [selectedRun, setSelectedRun] = useState<number | null>(null);
   const bestRunIndex = result.runs.reduce((best, r) => r.score.finalScore > best.score.finalScore ? r : best, result.runs[0]).runIndex;
 
+  // Sorting state for per-run table
+  type SortKey = "runIndex" | "seed" | "outcome" | "score" | "totalTurns" | "roomsCleared" | "heroesAlive" | "party";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("runIndex");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "runIndex" || key === "seed" || key === "outcome" || key === "party" ? "asc" : "desc");
+    }
+  };
+
+  const sortedRuns = useMemo(() => {
+    const runs = [...result.runs];
+    const dir = sortDir === "asc" ? 1 : -1;
+    runs.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "runIndex": cmp = a.runIndex - b.runIndex; break;
+        case "seed": cmp = a.seed.localeCompare(b.seed); break;
+        case "outcome": cmp = a.outcome.localeCompare(b.outcome); break;
+        case "score": cmp = a.score.finalScore - b.score.finalScore; break;
+        case "totalTurns": cmp = a.totalTurns - b.totalTurns; break;
+        case "roomsCleared": cmp = a.roomsCleared - b.roomsCleared; break;
+        case "heroesAlive": cmp = a.heroesAlive - b.heroesAlive; break;
+        case "party": cmp = a.partyComposition.map(p => p.className).join("+").localeCompare(b.partyComposition.map(p => p.className).join("+")); break;
+      }
+      return cmp * dir;
+    });
+    return runs;
+  }, [result.runs, sortKey, sortDir]);
+
+  const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -1163,18 +1200,18 @@ function ResultsView({
           <table className="w-full text-sm min-w-[600px]">
             <thead className="sticky top-0 bg-spire-bg/90 backdrop-blur-sm">
               <tr className="text-spire-muted text-xs border-b border-spire-border/40">
-                <th className="text-left py-2 px-2">#</th>
-                <th className="text-left py-2 px-2">Seed</th>
-                <th className="text-left py-2 px-2">Outcome</th>
-                <th className="text-right py-2 px-2">Score</th>
-                <th className="text-right py-2 px-2">Turns</th>
-                <th className="text-right py-2 px-2">Rooms</th>
-                <th className="text-right py-2 px-2">Heroes</th>
-                <th className="text-left py-2 px-2">Party</th>
+                <th className="text-left py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("runIndex")}>#{sortArrow("runIndex")}</th>
+                <th className="text-left py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("seed")}>Seed{sortArrow("seed")}</th>
+                <th className="text-left py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("outcome")}>Outcome{sortArrow("outcome")}</th>
+                <th className="text-right py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("score")}>Score{sortArrow("score")}</th>
+                <th className="text-right py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("totalTurns")}>Turns{sortArrow("totalTurns")}</th>
+                <th className="text-right py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("roomsCleared")}>Rooms{sortArrow("roomsCleared")}</th>
+                <th className="text-right py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("heroesAlive")}>Heroes{sortArrow("heroesAlive")}</th>
+                <th className="text-left py-2 px-2 cursor-pointer hover:text-spire-gold select-none" onClick={() => toggleSort("party")}>Party{sortArrow("party")}</th>
               </tr>
             </thead>
             <tbody>
-              {result.runs.map((run) => (
+              {sortedRuns.map((run) => (
                 <tr
                   key={run.runIndex}
                   className="border-b border-spire-border/20 hover:bg-spire-accent/5 cursor-pointer transition-colors"
