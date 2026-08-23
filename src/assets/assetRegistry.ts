@@ -5,10 +5,11 @@
  */
 
 // Eagerly import all asset files as URLs
-// With as:"url", Vite returns the URL string directly (not a module object)
+// Using query:"?url", import:"default" (Vite 5+ replacement for deprecated as:"url")
 const allAssets = import.meta.glob("../../assets/**/*", {
   eager: true,
-  as: "url",
+  query: "?url",
+  import: "default",
 }) as Record<string, string>;
 
 // Build a normalized lookup map: lowercase filename without extension → URL

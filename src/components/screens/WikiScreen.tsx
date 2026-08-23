@@ -37,7 +37,8 @@ type Tab = "gallery" | "armory" | "audio" | "rules" | "pcg" | "strategy";
 
 const allAssets = import.meta.glob("../../../assets/**/*", {
   eager: true,
-  as: "url",
+  query: "?url",
+  import: "default",
 }) as Record<string, string>;
 
 interface AssetEntry {

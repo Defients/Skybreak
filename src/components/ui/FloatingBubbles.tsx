@@ -119,7 +119,8 @@ function getRarityForPath(path: string): RarityLevel {
 
 const allImages = import.meta.glob("../../../assets/**/*.{png,webp}", {
   eager: true,
-  as: "url",
+  query: "?url",
+  import: "default",
 }) as Record<string, string>;
 
 const ALLOWED_DIRS = [
