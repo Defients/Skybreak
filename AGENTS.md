@@ -11,6 +11,20 @@
 ## Stack
 React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + recharts + marked.
 
+## Delivery Metrics (measured at HEAD ce819a2)
+- Build duration: ~27s (tsc -b + vite build)
+- Dist total: 221.44 MB
+- JS: 1,381 KB (gzipped: ~423 KB across all chunks)
+- CSS: 100 KB (gzip: 19 KB)
+- Images: 191.04 MB (PNG/WebP, loaded on demand)
+- Audio: 28.89 MB (MP3, loaded on demand)
+- Initial browser transfer (eagerly loaded, gzipped): ~158 KB
+  - index.html: 0.85 KB, index JS: 61.20 KB, react-vendor: 45.41 KB,
+    data: 9.22 KB, game-engine: 22.00 KB, CSS: 19.01 KB
+- Lazy-loaded chunks: CombatView (12.65 KB gz), MerchantView (11.88 KB gz),
+  StrategyLabScreen (127.42 KB gz), WikiScreen (66.40 KB gz), others < 11 KB gz
+- Tests: 301/301 pass (20 files), ~39s total
+
 ## Architecture (verified at HEAD 7fad9ef)
 - `src/engine/` — pure engine layer (GameState in → GameState out).
 - `src/app/` — Zustand stores: `gameStore` (live game), `batchStore`, `strategyLabStore`, `hybridStore`.
