@@ -1,0 +1,18 @@
+{
+  "name": "Skyward Ascent — A Tabletop Dungeon Crawl",
+  "short_name": "Skyward Ascent",
+  "description": "Turn an ordinary deck of cards into an epic adventure. Assemble three Heroes, climb the Astrilith, gather powerful loot, and face Vyridian, the Astril Conductor. An Astrizda game.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#030308",
+  "theme_color": "#030308",
+  "icons": [
+    {
+      "src": "/og-image.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
