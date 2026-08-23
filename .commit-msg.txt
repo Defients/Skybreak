@@ -1,0 +1,14 @@
+SA-9: remove dead code — diceEngine + scoringEngine
+
+Deleted src/engine/diceEngine.ts (DiceEngine wrapper, zero references in
+src except the file itself) and src/engine/scoringEngine.ts (1-line
+re-export of calculateScore from progressionEngine, zero references).
+
+Previously removed in SA-2: aiAutoPlayFullCombat and aiExecuteHeroTurn
+(dead AI combat runner code, only self-referenced).
+
+All removals verified: typecheck clean, 301/301 tests pass.
+
+Generated with [Devin](https://devin.ai)
+
+Co-Authored-By: Devin <158243242+devin-ai-integration[bot]@users.noreply.github.com>
