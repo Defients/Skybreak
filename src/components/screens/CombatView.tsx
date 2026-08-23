@@ -520,6 +520,15 @@ export function CombatView({ onBack }: Props) {
   const livingHeroes = state ? getLivingHeroes(state) : [];
   const isCombatOver = combatMaybe?.combatResult !== undefined;
 
+  // Collect new combat events for the effect overlay
+  // (declared before the early return so the hook count is stable)
+  const newEffectEvents = combatStarted ? combatEvents.filter(e => e.sequence > lastEffectSeqRef.current) : [];
+  useEffect(() => {
+    if (newEffectEvents.length > 0) {
+      lastEffectSeqRef.current = newEffectEvents[newEffectEvents.length - 1].sequence;
+    }
+  }, [newEffectEvents]);
+
   // Spacebar to continue after combat ends
   useEffect(() => {
     if (!isCombatOver) return;
@@ -604,13 +613,6 @@ export function CombatView({ onBack }: Props) {
   const fogUrl = getFogImage();
   const starsUrl = getStarsImage();
   const goldCoinUrl = getGoldCoinImage();
-  // Collect new combat events for the effect overlay
-  const newEffectEvents = combatStarted ? combatEvents.filter(e => e.sequence > lastEffectSeqRef.current) : [];
-  useEffect(() => {
-    if (newEffectEvents.length > 0) {
-      lastEffectSeqRef.current = newEffectEvents[newEffectEvents.length - 1].sequence;
-    }
-  }, [newEffectEvents]);
 
   const combatBg = getTierBackground(state.spire.tier);
 
