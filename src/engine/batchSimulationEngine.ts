@@ -25,10 +25,8 @@ import {
   startCombat,
   cleanupCombat,
   grantRewards,
-  checkCombatEnd,
 } from "./combatEngine";
-import { executeMonsterTurn } from "./monsterAbilityEngine";
-import { aiPlayHeroTurn, executeAiHeroDecision } from "./aiController";
+import { runCombatStep } from "./combatRunner";
 import {
   enterMerchant,
   buyItem,
@@ -92,7 +90,7 @@ function pickSplitChoice(
   return 0;
 }
 
-function getItemUsageThreshold(strategy: BatchConfig["itemUsageStrategy"]): number {
+export function getItemUsageThreshold(strategy: BatchConfig["itemUsageStrategy"]): number {
   switch (strategy) {
     case "never": return 0;
     case "conservative": return 0.3;
@@ -108,96 +106,20 @@ async function autoPlayCombat(
   config: BatchConfig
 ): Promise<GameState> {
   let newState = state;
-
   const maxIterations = 200;
   let safetyCounter = 0;
-  // Stalemate detection is owned by the canonical path: monsterAbilityEngine
-  // .finishMonsterTurn maintains state.combat.roundsWithoutProgress and calls
-  // checkCombatEnd, which forces retreat once round > 10 AND no HP progress for
-  // STALEMATE_ROUNDS_WITHOUT_PROGRESS rounds. Do NOT duplicate that logic here —
-  // a divergent local counter would make batch retreat earlier than playable
-  // mode and break cross-path parity. The maxIterations guard below prevents
-  // infinite loops regardless.
+  const runnerConfig = {
+    combatStrategy: config.combatStrategy,
+    itemUsageStrategy: config.itemUsageStrategy,
+  };
 
   while (newState.combat && !newState.combat.combatResult && safetyCounter < maxIterations) {
     safetyCounter++;
-
     // Yield to event loop every few iterations so UI can paint
     if (safetyCounter % 3 === 0) {
       await nextPaint();
     }
-
-    if (newState.combat.activeSide === "monster") {
-      newState = executeMonsterTurn(newState, rng);
-      continue;
-    }
-
-    if (newState.combat.activeSide === "heroes") {
-      const livingHeroes = getLivingHeroes(newState);
-      if (livingHeroes.length === 0) break;
-
-      const healThreshold = getItemUsageThreshold(config.itemUsageStrategy);
-
-      for (const hero of livingHeroes) {
-        if (!newState.combat || newState.combat.combatResult) break;
-        if (newState.combat.completedHeroTurns.includes(hero.id)) continue;
-        if (!hero.alive) continue;
-
-        const heroState = getHeroById(newState, hero.id);
-        if (!heroState || !heroState.alive) continue;
-
-        // Canonical AI decision — single interpretation of strategy → action.
-        const decision = aiPlayHeroTurn(newState, rng, hero.id, config.combatStrategy, { healThreshold });
-        newState = executeAiHeroDecision(newState, rng, hero.id, decision);
-
-        // Mark hero as having completed their turn (executeHeroAction does NOT do this internally)
-        if (newState.combat && !newState.combat.completedHeroTurns.includes(hero.id)) {
-          newState = {
-            ...newState,
-            combat: {
-              ...newState.combat,
-              completedHeroTurns: [...newState.combat.completedHeroTurns, hero.id],
-            },
-          };
-        }
-
-        if (newState.combat && !newState.combat.combatResult) {
-          const endCheck = checkCombatEnd(newState);
-          if (endCheck.result !== "ongoing") {
-            newState = {
-              ...newState,
-              combat: { ...newState.combat!, combatResult: endCheck.result as any },
-            };
-            newState = emitEvent(newState, "COMBAT_ENDED", `Combat ended: ${endCheck.result}. ${endCheck.reason}`, {
-              details: { result: endCheck.result, reason: endCheck.reason },
-            });
-            break;
-          }
-        }
-      }
-
-      if (newState.combat && !newState.combat.combatResult) {
-        const livingHeroIds = getLivingHeroes(newState).map(h => h.id);
-        const allDone = newState.combat.heroTurnOrder
-          .filter(id => getHeroById(newState, id)?.alive)
-          .every(id => newState.combat!.completedHeroTurns.includes(id));
-
-        if (allDone) {
-          newState = {
-            ...newState,
-            stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
-            combat: {
-              ...newState.combat!,
-              turnCount: newState.combat!.turnCount + 1,
-              round: newState.combat!.round + 1,
-              completedHeroTurns: [],
-              activeSide: "monster" as const,
-              heroTurnOrder: livingHeroIds,
-            },
-          };
-        }
-      }
-    }
+    newState = runCombatStep(newState, rng, runnerConfig);
   }
 
   return newState;
