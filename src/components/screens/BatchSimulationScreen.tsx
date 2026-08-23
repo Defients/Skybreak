@@ -1214,6 +1214,7 @@ function ResultsView({
             events={result.runs[selectedRun].combatLog}
             runIndex={selectedRun}
             partyComposition={result.runs[selectedRun].partyComposition}
+            outcome={result.runs[selectedRun].outcome}
           />
         )}
       </div>
@@ -1234,19 +1235,21 @@ function ResultsView({
   );
 }
 
-function CombatLogViewer({ events, runIndex, partyComposition }: {
+function CombatLogViewer({ events, runIndex, partyComposition, outcome }: {
   events: GameEvent[];
   runIndex: number;
   partyComposition: { className: HeroClassName; suit: Suit; specialization: string }[];
+  outcome: "victory" | "defeat" | "retreat";
 }) {
   const nameMap = useMemo(() => buildNameMapFromComposition(partyComposition), [partyComposition]);
   const consolidated = useMemo(() => consolidateShieldEvents(events), [events]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(Math.min(20, consolidated.length));
+  // Show all events immediately — these are completed runs, not live
+  const [visibleCount, setVisibleCount] = useState(consolidated.length);
   const rafRef = useRef<number>(0);
   const autoScrollRef = useRef(true);
-  const visibleCountRef = useRef(Math.min(20, consolidated.length));
+  const visibleCountRef = useRef(consolidated.length);
   const eventsLenRef = useRef(consolidated.length);
   const revealTimerRef = useRef<number>(0);
   const keyEvents = useMemo(() => extractKeyEvents(consolidated), [consolidated]);
@@ -1256,12 +1259,12 @@ function CombatLogViewer({ events, runIndex, partyComposition }: {
   useEffect(() => { visibleCountRef.current = visibleCount; }, [visibleCount]);
   useEffect(() => { eventsLenRef.current = consolidated.length; }, [consolidated.length]);
 
-  // Reset when run changes
+  // Reset when run changes — show all events immediately
   useEffect(() => {
     setAutoScroll(true);
     autoScrollRef.current = true;
-    setVisibleCount(Math.min(20, consolidated.length));
-    visibleCountRef.current = Math.min(20, consolidated.length);
+    setVisibleCount(consolidated.length);
+    visibleCountRef.current = consolidated.length;
     revealTimerRef.current = 0;
     if (scrollRef.current) {
       scrollRef.current.scrollTop = 0;
@@ -1359,8 +1362,11 @@ function CombatLogViewer({ events, runIndex, partyComposition }: {
       )}
 
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm text-spire-gold">
+        <h4 className="text-sm text-spire-gold flex items-center gap-2">
           Run {runIndex + 1} — Full Combat Log ({consolidated.length} events)
+          <span className={`text-[10px] px-2 py-0.5 rounded border ${outcome === "victory" ? "text-yellow-400 border-yellow-400/40 bg-yellow-400/10" : "text-red-400 border-red-400/40 bg-red-400/10"}`}>
+            {outcome === "victory" ? "🏆 VICTORY" : "☠️ DEFEAT"}
+          </span>
         </h4>
         <div className="flex items-center gap-2">
           {autoScroll ? (
@@ -1373,6 +1379,16 @@ function CombatLogViewer({ events, runIndex, partyComposition }: {
               ▶ Resume auto-scroll
             </button>
           )}
+          <button
+            className="text-[10px] text-spire-muted hover:text-spire-white border border-spire-border/40 rounded px-2 py-0.5"
+            onClick={() => {
+              if (scrollRef.current) {
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+              }
+            }}
+          >
+            ⏬ Jump to end
+          </button>
           <span className="text-[10px] text-spire-muted/60">scroll to break</span>
         </div>
       </div>
