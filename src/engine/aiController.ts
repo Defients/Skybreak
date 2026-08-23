@@ -3,9 +3,6 @@ import type { RngEngine } from "../utils/random";
 import type { CombatStrategy, MerchantStrategy, RestStrategy, SplitStrategy } from "../types/batch";
 import { getLivingHeroes, getHeroById, getDeadHeroes } from "./rulesEngine";
 import { executeHeroAction, useItem } from "./heroAbilityEngine";
-import { executeMonsterTurn } from "./monsterAbilityEngine";
-import { checkCombatEnd } from "./combatEngine";
-import { emitEvent } from "./eventLog";
 import { findItemByTag } from "../utils/tagMatchers";
 
 export interface AICombatDecision {
@@ -14,11 +11,32 @@ export interface AICombatDecision {
   itemName?: string;
 }
 
+export interface AiPlayOptions {
+  /**
+   * Optional heal threshold (0..1) derived from an item-usage strategy. When
+   * provided, it overrides the per-strategy default heal threshold so that
+   * batch simulation can tune healing aggressiveness without reimplementing
+   * the decision logic. defensive/survivalist use max(strategyDefault,
+   * healThreshold) so a higher item-usage threshold can only make healing
+   * MORE aggressive, never less.
+   */
+  healThreshold?: number;
+}
+
+/**
+ * Canonical hero combat decision function. Every execution path
+ * (batch simulation, strategy lab, in-game simulation mode, hybrid mode)
+ * MUST route hero-action selection through this function so that the game
+ * has one interpretation of strategy → action. Adapters execute the returned
+ * decision via executeHeroAction / useItem / end-turn; they do NOT
+ * reimplement strategy semantics.
+ */
 export function aiPlayHeroTurn(
   state: GameState,
   rng: RngEngine,
   heroId: string,
-  strategy: CombatStrategy = "balanced"
+  strategy: CombatStrategy = "balanced",
+  options?: AiPlayOptions
 ): AICombatDecision {
   const hero = getHeroById(state, heroId);
   if (!hero || !hero.alive || !state.combat) {
@@ -28,31 +46,38 @@ export function aiPlayHeroTurn(
   const hpRatio = hero.currentHp / hero.maxHp;
   const monsterId = state.combat.monster.id;
   const healItem = findItemByTag(hero.items, "healing");
+  const ht = options?.healThreshold;
 
   switch (strategy) {
     case "aggressive":
       return { action: "attack", targetId: monsterId };
 
-    case "defensive":
-      if (hpRatio < 0.5 && healItem) {
+    case "defensive": {
+      const threshold = ht === undefined ? 0.5 : Math.max(0.5, ht);
+      if (hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       return { action: "attack", targetId: monsterId };
+    }
 
-    case "balanced":
-      if (hpRatio < 0.3 && healItem) {
+    case "balanced": {
+      const threshold = ht === undefined ? 0.3 : ht;
+      if (hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       return { action: "attack", targetId: monsterId };
+    }
 
-    case "survivalist":
-      if (hpRatio < 0.4 && healItem) {
+    case "survivalist": {
+      const threshold = ht === undefined ? 0.4 : Math.max(0.4, ht);
+      if (hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       if (hpRatio < 0.2) {
         return { action: "end_turn" };
       }
       return { action: "attack", targetId: monsterId };
+    }
 
     case "random-legal": {
       const roll = rng.rollD6("ai_random_choice").total;
@@ -76,20 +101,25 @@ export function aiPlayHeroTurn(
   }
 }
 
-export function aiExecuteHeroTurn(
+/**
+ * Canonical executor for an AI hero combat decision. Adapters call
+ * aiPlayHeroTurn to obtain a decision, then this function to apply it through
+ * the same engine functions every path uses. Returns the state unchanged for
+ * "end_turn" (the adapter is responsible for marking the hero's turn
+ * complete). This is the single execution boundary for AI hero actions.
+ */
+export function executeAiHeroDecision(
   state: GameState,
   rng: RngEngine,
   heroId: string,
-  strategy: CombatStrategy = "balanced"
+  decision: AICombatDecision
 ): GameState {
-  const decision = aiPlayHeroTurn(state, rng, heroId, strategy);
   const monsterId = state.combat?.monster.id;
-
   switch (decision.action) {
     case "attack":
-      return executeHeroAction(state, rng, heroId, decision.targetId ?? monsterId).state;
+      return executeHeroAction(state, rng, heroId, decision.targetId ?? monsterId ?? "").state;
     case "use_item":
-      return useItem(state, heroId, decision.itemName!, decision.targetId, rng);
+      return useItem(state, heroId, decision.itemName ?? "", decision.targetId, rng);
     case "end_turn":
     default:
       return state;
@@ -193,108 +223,4 @@ export function aiMerchantActions(
   }
 
   return purchases;
-}
-
-export function aiAutoPlayFullCombat(
-  state: GameState,
-  rng: RngEngine,
-  strategy: CombatStrategy = "balanced",
-  maxIterations = 200
-): GameState {
-  let newState = state;
-  let safetyCounter = 0;
-  let roundsWithoutProgress = 0;
-  let lastMonsterHp = newState.combat?.monster.currentHp ?? 0;
-  let lastTotalHeroHp = getLivingHeroes(newState).reduce((s, h) => s + h.currentHp, 0);
-
-  while (newState.combat && !newState.combat.combatResult && safetyCounter < maxIterations) {
-    safetyCounter++;
-
-    if (newState.combat.activeSide === "monster") {
-      newState = executeMonsterTurn(newState, rng);
-      continue;
-    }
-
-    if (newState.combat.activeSide === "heroes") {
-      const livingHeroes = getLivingHeroes(newState);
-      if (livingHeroes.length === 0) break;
-
-      for (const hero of livingHeroes) {
-        if (!newState.combat || newState.combat.combatResult) break;
-        if (newState.combat.completedHeroTurns.includes(hero.id)) continue;
-        if (!hero.alive) continue;
-
-        newState = aiExecuteHeroTurn(newState, rng, hero.id, strategy);
-
-        if (newState.combat && !newState.combat.completedHeroTurns.includes(hero.id)) {
-          newState = {
-            ...newState,
-            combat: {
-              ...newState.combat,
-              completedHeroTurns: [...newState.combat.completedHeroTurns, hero.id],
-            },
-          };
-        }
-
-        if (newState.combat && !newState.combat.combatResult) {
-          const endCheck = checkCombatEnd(newState);
-          if (endCheck.result !== "ongoing") {
-            newState = {
-              ...newState,
-              combat: { ...newState.combat!, combatResult: endCheck.result as any },
-            };
-            newState = emitEvent(newState, "COMBAT_ENDED", `Combat ended: ${endCheck.result}. ${endCheck.reason}`, {
-              details: { result: endCheck.result, reason: endCheck.reason },
-            });
-            break;
-          }
-        }
-      }
-
-      if (newState.combat && !newState.combat.combatResult) {
-        const livingHeroIds = getLivingHeroes(newState).map((h) => h.id);
-        const allDone = newState.combat.heroTurnOrder
-          .filter((id) => getHeroById(newState, id)?.alive)
-          .every((id) => newState.combat!.completedHeroTurns.includes(id));
-
-        if (allDone) {
-          const currentMonsterHp = newState.combat!.monster.currentHp;
-          const currentTotalHeroHp = getLivingHeroes(newState).reduce((s, h) => s + h.currentHp, 0);
-          if (currentMonsterHp === lastMonsterHp && currentTotalHeroHp === lastTotalHeroHp) {
-            roundsWithoutProgress++;
-          } else {
-            roundsWithoutProgress = 0;
-          }
-          lastMonsterHp = currentMonsterHp;
-          lastTotalHeroHp = currentTotalHeroHp;
-
-          if (roundsWithoutProgress >= 8) {
-            newState = {
-              ...newState,
-              combat: { ...newState.combat!, combatResult: "retreat" as any },
-            };
-            newState = emitEvent(newState, "COMBAT_ENDED", `Combat ended: retreat. Stalemate.`, {
-              details: { result: "retreat", reason: "stalemate" },
-            });
-            break;
-          }
-
-          newState = {
-            ...newState,
-            stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
-            combat: {
-              ...newState.combat!,
-              turnCount: newState.combat!.turnCount + 1,
-              round: newState.combat!.round + 1,
-              completedHeroTurns: [],
-              activeSide: "monster" as const,
-              heroTurnOrder: livingHeroIds,
-            },
-          };
-        }
-      }
-    }
-  }
-
-  return newState;
 }

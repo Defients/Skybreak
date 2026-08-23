@@ -28,8 +28,7 @@ import {
   checkCombatEnd,
 } from "./combatEngine";
 import { executeMonsterTurn } from "./monsterAbilityEngine";
-import { executeHeroAction, useItem } from "./heroAbilityEngine";
-import { findItemByTag } from "../utils/tagMatchers";
+import { aiPlayHeroTurn, executeAiHeroDecision } from "./aiController";
 import {
   enterMerchant,
   buyItem,
@@ -137,6 +136,8 @@ async function autoPlayCombat(
       const livingHeroes = getLivingHeroes(newState);
       if (livingHeroes.length === 0) break;
 
+      const healThreshold = getItemUsageThreshold(config.itemUsageStrategy);
+
       for (const hero of livingHeroes) {
         if (!newState.combat || newState.combat.combatResult) break;
         if (newState.combat.completedHeroTurns.includes(hero.id)) continue;
@@ -145,89 +146,9 @@ async function autoPlayCombat(
         const heroState = getHeroById(newState, hero.id);
         if (!heroState || !heroState.alive) continue;
 
-        const hpRatio = heroState.currentHp / heroState.maxHp;
-        const monsterId = newState.combat.monster.id;
-        const healThreshold = getItemUsageThreshold(config.itemUsageStrategy);
-
-        let acted = false;
-
-        switch (config.combatStrategy) {
-          case "aggressive":
-            newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-            acted = true;
-            break;
-
-          case "defensive":
-            if (hpRatio < Math.max(0.5, healThreshold)) {
-              const healItem = findItemByTag(heroState.items, "healing");
-              if (healItem) {
-                newState = useItem(newState, hero.id, healItem.name, hero.id, rng);
-                acted = true;
-                break;
-              }
-            }
-            newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-            acted = true;
-            break;
-
-          case "balanced":
-            if (hpRatio < healThreshold) {
-              const healItem = findItemByTag(heroState.items, "healing");
-              if (healItem) {
-                newState = useItem(newState, hero.id, healItem.name, hero.id, rng);
-                acted = true;
-                break;
-              }
-            }
-            newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-            acted = true;
-            break;
-
-          case "survivalist":
-            if (hpRatio < Math.max(0.4, healThreshold)) {
-              const healItem = findItemByTag(heroState.items, "healing");
-              if (healItem) {
-                newState = useItem(newState, hero.id, healItem.name, hero.id, rng);
-                acted = true;
-                break;
-              }
-            }
-            if (hpRatio < 0.2) {
-              const combat = { ...newState.combat!, completedHeroTurns: [...newState.combat!.completedHeroTurns, hero.id] };
-              newState = { ...newState, combat };
-              acted = true;
-              break;
-            }
-            newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-            acted = true;
-            break;
-
-          case "random-legal": {
-            const roll = rng.rollD6("ai_random_choice").total;
-            if (roll <= 2 && heroState.items.length > 0) {
-              const itemIdx = Math.floor(rng.rollD6("ai_item_pick").total / 6 * heroState.items.length);
-              const randomItem = heroState.items[itemIdx];
-              if (randomItem && randomItem.quantity > 0) {
-                newState = useItem(newState, hero.id, randomItem.name, hero.id, rng);
-                acted = true;
-                break;
-              }
-            }
-            if (roll <= 3) {
-              const combat = { ...newState.combat!, completedHeroTurns: [...newState.combat!.completedHeroTurns, hero.id] };
-              newState = { ...newState, combat };
-              acted = true;
-              break;
-            }
-            newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-            acted = true;
-            break;
-          }
-        }
-
-        if (!acted) {
-          newState = executeHeroAction(newState, rng, hero.id, monsterId).state;
-        }
+        // Canonical AI decision — single interpretation of strategy → action.
+        const decision = aiPlayHeroTurn(newState, rng, hero.id, config.combatStrategy, { healThreshold });
+        newState = executeAiHeroDecision(newState, rng, hero.id, decision);
 
         // Mark hero as having completed their turn (executeHeroAction does NOT do this internally)
         if (newState.combat && !newState.combat.completedHeroTurns.includes(hero.id)) {

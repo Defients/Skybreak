@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useGameStore } from "../app/gameStore";
 import { getLivingHeroes, getHeroById } from "../engine/rulesEngine";
-import { aiPickSplitChoice, aiRestChoice, aiMerchantActions } from "../engine/aiController";
+import { aiPlayHeroTurn, aiPickSplitChoice, aiRestChoice, aiMerchantActions } from "../engine/aiController";
 import { useAudio } from "../audio/useAudio";
-import { findItemByTag } from "../utils/tagMatchers";
 
 const SPEED_DELAYS: Record<number, number> = {
   1: 1500,
@@ -96,17 +95,16 @@ export function useAutoPlay() {
           (id) => !combat.completedHeroTurns.includes(id) && getHeroById(currentState, id)?.alive
         );
         if (nextHeroId) {
-          const hero = getHeroById(currentState, nextHeroId);
-          if (hero) {
-            const hpRatio = hero.currentHp / hero.maxHp;
-            const healItem = findItemByTag(hero.items, "healing");
-            if (hpRatio < 0.3 && healItem) {
-              doUseItem(hero.id, healItem.name, hero.id);
-            } else {
-              doHeroAction(hero.id, "attack", combat.monster.id);
-            }
-            return;
+          // Canonical AI decision — sim mode uses the balanced strategy.
+          const decision = aiPlayHeroTurn(currentState, currentRng, nextHeroId, "balanced");
+          if (decision.action === "attack") {
+            doHeroAction(nextHeroId, "attack", decision.targetId ?? combat.monster.id);
+          } else if (decision.action === "use_item") {
+            doUseItem(nextHeroId, decision.itemName!, decision.targetId ?? nextHeroId);
+          } else {
+            doEndTurn(nextHeroId);
           }
+          return;
         }
         const allDone = combat.heroTurnOrder
           .filter((id) => getHeroById(currentState, id)?.alive)

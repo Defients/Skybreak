@@ -27,7 +27,7 @@ import { ITEMS } from "../../data/items";
 import { suitSymbol, isRedSuit, getApcColors, APC_COLORS } from "../../types/cards";
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
 import { getMonsterById, MONSTERS, SUMMON_DATA } from "../../data/monsters";
-import { findItemByTag } from "../../utils/tagMatchers";
+import { aiPlayHeroTurn } from "../../engine/aiController";
 
 const HEAD_COLORS: Record<string, string> = {
   Lion: "#f59e0b",
@@ -280,20 +280,21 @@ export function CombatView({ onBack }: Props) {
   const aiControlledHeroes = useHybridStore((s) => s.aiControlledHeroes);
   const toggleHeroAI = useHybridStore((s) => s.toggleHeroAI);
 
-  // Hybrid mode: auto-play AI-controlled hero turns
+  // Hybrid mode: auto-play AI-controlled hero turns via the canonical AI decision.
   const executeAIHeroTurn = useCallback((heroId: string, monsterId: string) => {
-    const s = useGameStore.getState().state;
-    if (!s?.combat) return;
-    const hero = s.party.heroes.find((h) => h.id === heroId);
-    if (!hero) return;
-    const hpRatio = hero.currentHp / hero.maxHp;
-    const healItem = findItemByTag(hero.items, "healing");
-    if (hpRatio < 0.3 && healItem) {
-      doUseItem(hero.id, healItem.name, hero.id);
+    const storeState = useGameStore.getState();
+    const s = storeState.state;
+    const rng = storeState.rng;
+    if (!s?.combat || !rng) return;
+    const decision = aiPlayHeroTurn(s, rng, heroId, "balanced");
+    if (decision.action === "use_item") {
+      doUseItem(heroId, decision.itemName!, decision.targetId ?? heroId);
+    } else if (decision.action === "end_turn") {
+      doEndTurn(heroId);
     } else {
-      doHeroAction(hero.id, "attack", monsterId);
+      doHeroAction(heroId, "attack", decision.targetId ?? monsterId);
     }
-  }, [doHeroAction, doUseItem]);
+  }, [doHeroAction, doUseItem, doEndTurn]);
 
   useEffect(() => {
     if (!isHybridMode || !combatStarted || !state?.combat) return;
