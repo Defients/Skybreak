@@ -26,7 +26,6 @@ import {
   cleanupCombat,
   grantRewards,
   checkCombatEnd,
-  STALEMATE_ROUNDS_WITHOUT_PROGRESS,
 } from "./combatEngine";
 import { executeMonsterTurn } from "./monsterAbilityEngine";
 import { executeHeroAction, useItem } from "./heroAbilityEngine";
@@ -113,10 +112,13 @@ async function autoPlayCombat(
 
   const maxIterations = 200;
   let safetyCounter = 0;
-  // Stalemate tracking: if HP doesn't change for 8 consecutive rounds, force a retreat
-  let roundsWithoutProgress = 0;
-  let lastMonsterHp = newState.combat?.monster.currentHp ?? 0;
-  let lastTotalHeroHp = getLivingHeroes(newState).reduce((s, h) => s + h.currentHp, 0);
+  // Stalemate detection is owned by the canonical path: monsterAbilityEngine
+  // .finishMonsterTurn maintains state.combat.roundsWithoutProgress and calls
+  // checkCombatEnd, which forces retreat once round > 10 AND no HP progress for
+  // STALEMATE_ROUNDS_WITHOUT_PROGRESS rounds. Do NOT duplicate that logic here —
+  // a divergent local counter would make batch retreat earlier than playable
+  // mode and break cross-path parity. The maxIterations guard below prevents
+  // infinite loops regardless.
 
   while (newState.combat && !newState.combat.combatResult && safetyCounter < maxIterations) {
     safetyCounter++;
@@ -260,28 +262,6 @@ async function autoPlayCombat(
           .every(id => newState.combat!.completedHeroTurns.includes(id));
 
         if (allDone) {
-          const currentMonsterHp = newState.combat!.monster.currentHp;
-          const currentTotalHeroHp = getLivingHeroes(newState).reduce((s, h) => s + h.currentHp, 0);
-          if (currentMonsterHp === lastMonsterHp && currentTotalHeroHp === lastTotalHeroHp) {
-            roundsWithoutProgress++;
-          } else {
-            roundsWithoutProgress = 0;
-          }
-          lastMonsterHp = currentMonsterHp;
-          lastTotalHeroHp = currentTotalHeroHp;
-
-          // Force retreat on stalemate
-          if (roundsWithoutProgress >= STALEMATE_ROUNDS_WITHOUT_PROGRESS) {
-            newState = {
-              ...newState,
-              combat: { ...newState.combat!, combatResult: "retreat" as any },
-            };
-            newState = emitEvent(newState, "COMBAT_ENDED", `Combat ended: retreat. Stalemate — no progress for ${STALEMATE_ROUNDS_WITHOUT_PROGRESS} rounds.`, {
-              details: { result: "retreat", reason: "stalemate" },
-            });
-            break;
-          }
-
           newState = {
             ...newState,
             stats: { ...newState.stats, totalTurns: newState.stats.totalTurns + 1 },
