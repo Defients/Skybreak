@@ -27,13 +27,14 @@ export function createDefaultConfig(
     rngMode: "seeded",
     speed: "readable",
     logLevel: "normal",
-    showAiReasoning: false,
+    showAiReasoning: false, // NOT YET IMPLEMENTED — declared in types, not surfaced in UI, not consumed by engine.
     showDamageMath: false,
     showCardFlips: true,
     showDiceRolls: true,
     allowManualOverride: true,
     allowIllegalOverride: false,
     autoResolveTrivialChoices: false,
+    // NOT YET IMPLEMENTED — declared in types, not surfaced in UI, not evaluated by engine.
     stopConditions: {
       onHeroDeath: false,
       onPartyDeath: true,
