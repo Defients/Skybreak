@@ -48,7 +48,7 @@ function nextPaint(): Promise<void> {
   });
 }
 
-function randomParty(rng: RngEngine): PartySetupChoice[] {
+export function randomParty(rng: RngEngine): PartySetupChoice[] {
   const shuffled = rng.shuffleDeck([...ALL_CLASSES], "party_shuffle");
   const chosen = shuffled.slice(0, 3);
   return chosen.map((className, i) => {

@@ -2,17 +2,17 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, 252 tests, jsdom)
+- Test: `npm test` (vitest run, **728 tests / 24 files**, jsdom, ~60s)
 - Typecheck: `npx tsc -b --noEmit`
-- Build: `npm run build` (tsc -b && vite build)
+- Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
-- No lint script configured. No CI workflow (`.github/workflows` absent).
+- No lint script configured. GitHub CI workflow exists and passes.
 
 ## Stack
 React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + recharts + marked.
 
-## Delivery Metrics (measured at HEAD ce819a2)
-- Build duration: ~27s (tsc -b + vite build)
+## Delivery Metrics (measured at HEAD 80540bc; earlier ce819a2 figures superseded)
+- Build duration: ~26s (tsc -b + vite build)
 - Dist total: 221.44 MB
 - JS: 1,381 KB (gzipped: ~423 KB across all chunks)
 - CSS: 100 KB (gzip: 19 KB)
@@ -22,8 +22,8 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   - index.html: 0.85 KB, index JS: 61.20 KB, react-vendor: 45.41 KB,
     data: 9.22 KB, game-engine: 22.00 KB, CSS: 19.01 KB
 - Lazy-loaded chunks: CombatView (12.65 KB gz), MerchantView (11.88 KB gz),
-  StrategyLabScreen (127.42 KB gz), WikiScreen (66.40 KB gz), others < 11 KB gz
-- Tests: 301/301 pass (20 files), ~39s total
+  StrategyLabScreen (127.82 KB gz), WikiScreen (66.42 KB gz), others < 12 KB gz
+- Tests: 728/728 pass (24 files), ~60s total (715 original + 13 Megaplan Phase 0 fixtures)
 
 ## Asset Optimization Findings (SA-11, measurement-driven)
 - 30+ monster portrait PNGs at 2.5–3.1 MB each (~90 MB total). Converting
@@ -41,7 +41,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 ## Structural Decomposition Findings (SA-12, deferred)
 - Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),
   CombatView.tsx (71 KB), heroAbilityEngine.ts (66 KB), StrategyLabScreen.tsx (62 KB).
-- 301 tests now protect behavior across all paths, making decomposition safe.
+- 728 tests now protect behavior across all paths, making decomposition safe.
 - RECOMMENDATION: Split per-class hero/monster ability resolvers into
   separate files, extract MerchantView/CombatView sub-components. Deferred
   to user direction — no behavior change, pure maintainability improvement.
@@ -59,27 +59,32 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - `monsterAbilityEngine.finishMonsterTurn` (after monster turn — also maintains `roundsWithoutProgress`/`lastHpSnapshot`)
 `combatResult` is set on `state.combat` by these engine functions. `gameStore.doResolveRoom` consumes `combatResult` to grant rewards / cleanup / advance.
 
-## AI Execution Map (verified)
-- Batch + Strategy Lab: `batchSimulationEngine.autoPlayCombat` (inline strategy switch; Strategy Lab calls `runSingleGame`).
-- Sim mode: `hooks/useAutoPlay.step` (inline hardcoded 0.3 heal threshold; ignores `combatStrategy`).
-- Hybrid mode: `CombatView.executeAIHeroTurn` (inline hardcoded 0.3 heal threshold; ignores strategy).
-- `aiController.aiPlayHeroTurn` — canonical decision fn, but only called by dead `aiExecuteHeroTurn` + tests.
-- `aiController.aiAutoPlayFullCombat` / `aiExecuteHeroTurn` — DEAD (only self-references).
+## AI Execution Map (verified at HEAD 80540bc)
+- Batch + Strategy Lab: `batchSimulationEngine.autoPlayCombat` → `combatRunner.runCombatStep` → `aiPlayHeroTurn` (shared). Strategy Lab calls `runSingleGame`.
+- Sim mode: `hooks/useAutoPlay.step` now routes through `aiPlayHeroTurn` (no longer inline), but still hardcodes `"balanced"` and ignores `combatStrategy`.
+- Hybrid mode: `CombatView.executeAIHeroTurn` — re-verify whether it still hardcodes 0.3 / ignores strategy.
+- `aiController.aiPlayHeroTurn` — canonical decision fn, now called by `combatRunner.runCombatStep` and `useAutoPlay`.
+- The dead `aiAutoPlayFullCombat` / `aiExecuteHeroTurn` functions referenced in the old audit have been REMOVED; `executeAiHeroDecision` is the current executor.
 
-## Known Divergences (to address in SA-2/SA-4)
-- `useAutoPlay` and `CombatView` ignore `combatStrategy` (hardcoded balanced-ish).
+## Known Divergences (outstanding; tracked in Megaplan §4 as B5/B6)
+- `useAutoPlay` still hardcodes `"balanced"` and ignores `combatStrategy` (no longer inline, but strategy not honored).
 - `batchSimulationEngine.autoPlayCombat` has a redundant local stalemate counter that forces retreat at 5 no-progress rounds WITHOUT the `round > 10` guard that canonical `checkCombatEnd` requires. Batch retreats earlier than playable.
+- `randomParty` suit selection can never produce `spades` (`Math.min(3, Math.floor((roll-1)/2))` caps at index 2). `aiPickSplitChoice`/`pickSplitChoice` "random" can return an out-of-bounds index for d6=6. `aiMerchantActions` proposes purchases with no gold/affordability check. "never" item-usage is violated by defensive/survivalist `Math.max(default, ht)` clamping. All have failing fixtures in `src/tests/regressionMegaplan.test.ts`.
 
-## Dead Code (verified zero references)
-- `src/engine/diceEngine.ts` (DiceEngine wrapper)
-- `src/engine/scoringEngine.ts` (1-line re-export of calculateScore)
+## Megaplan Phase 0 — Reproduced Defect Fixtures (added 2026-09-07)
+- `src/tests/regressionMegaplan.test.ts` — 13 `it.fails` fixtures documenting B1 (final-boss finalization), B2 (asset lookup), B3 (save discovery/validation/RNG), B4 (stale timers), B5 (sampling/policy). Fail-as-expected; convert to `it` when each fix lands.
+- `RULES_AUTHORITY.md` — rules-authority ledger. Records the wolf-HP discrepancy (engine 7 vs rules 5) and HomeScreen difficulty-description drift vs implementation. Decisions pending; do not mix into infrastructure PRs.
+- See the Enhancement Megaplan (§4) for the full B1–B11 finding list and §10 for the phased plan.
 
-## Dead Config (verified)
-- `showAiReasoning` — set in defaults, never read.
-- `stopConditions` — defined in defaults + types, never evaluated.
+## Dead Code (re-verify before acting)
+- `src/engine/diceEngine.ts` and `src/engine/scoringEngine.ts` were flagged in the 2026-08-22 audit; re-verify zero references at current HEAD before removal.
 
-## Latent Risks (verified)
-- `gameStore` merchant actions omit `withRng` (harmless today because `merchantEngine` uses no RNG, but latent).
-- `doManualOverride` shallow-copies root then mutates nested refs via path traversal (shared-reference mutation + `__proto__`/`constructor` path risk).
-- `doResetGame` does not call `hybridStore.resetAIControl` (stale AI toggle bleed).
-- `saveLoad.importSave` casts `JSON.parse` to `SaveData` with no structural validation; `RngEngine.deserialize` throws on malformed `rng`.
+## Dead Config (re-verify before acting)
+- `showAiReasoning` and `stopConditions` were flagged in the 2026-08-22 audit; re-verify at current HEAD.
+
+## Latent Risks (status updated at HEAD 80540bc)
+- ~~`gameStore` merchant actions omit `withRng`~~ — RESOLVED. `doEnterMerchant`/`doBuyItem`/etc. now call `withRng`.
+- ~~`doManualOverride` `__proto__`/`constructor` path risk~~ — RESOLVED. Path keys are now blocked (`gameStore.ts:506-510`); arrays preserved via `[...arr]`.
+- ~~`doResetGame` does not call `hybridStore.resetAIControl`~~ — RESOLVED (`gameStore.ts:580`).
+- `saveLoad.importSave` performs structural validation via `isValidSaveShape`, but it does NOT validate the phase enum or hero fields, and legacy `skyward_ascent_*` keys are not discovered. `RngEngine.deserialize` accepts an unbounded/negative `step`. All tracked as B3 with failing fixtures.
+- `gameStore.doResolveRoom` clears combat (via `cleanupCombat`) BEFORE calling `checkVictory`, so a live final-boss victory never finalizes (B1, failing fixture).

@@ -1,5 +1,33 @@
 # Skybreak — Forensic Development-State Audit
 
+> **STATUS BANNER — added 2026-09-07 (Megaplan Phase 0).**
+> This report documents the repository state as of **2026-08-22** (252 tests,
+> 14 files, no git history). It is retained as history. The project has since
+> moved on: at HEAD `80540bc` the suite is **728 tests / 24 files, all green**
+> (715 original + 13 Megaplan Phase 0 reproduced-defect fixtures), git is
+> initialized, and a GitHub CI run succeeds.
+>
+> Treat the findings below as a **historical snapshot**, not the current truth.
+> Several have been resolved since this report was written (combat AI selection
+> is shared via `aiController.aiPlayHeroTurn`; canonical turn completion exists
+> in `combatRunner.completeHeroTurn`; merchant RNG writeback and
+> prototype-path protection in `doManualOverride` are present; hybrid reset is
+> implemented; several dead APIs/config fields were removed). The outstanding
+> defects are now tracked in the **Enhancement Megaplan** (§4, findings B1–B11)
+> and the **rules-authority ledger** (`RULES_AUTHORITY.md`). Specifically:
+> - **B1** (final-boss victory fails to finalize), **B2** (asset lookup
+>   unreachable), **B3** (saves disappear / pass validation while unusable),
+>   **B4** (stale delayed timers), **B5** (sampling/policy defects) are
+>   **OUTSTANDING** and have failing regression fixtures in
+>   `src/tests/regressionMegaplan.test.ts`.
+> - **B10** (wolf HP 7 vs 5; difficulty setup-description drift) is
+>   **OUTSTANDING — decision pending**; see `RULES_AUTHORITY.md`.
+> - The dead-code items (E9 `diceEngine`, E10 `scoringEngine`) and dead-config
+>   items (`showAiReasoning`, `stopConditions`) noted in `AGENTS.md` should be
+>   re-verified before acting; the codebase has changed since this report.
+> - The test counts, LOC figures, and "no `.git`" claim in this report are
+>   **OBSOLETE**.
+
 **Date:** 2026-08-22
 **Auditor:** Devin (autonomous)
 **Subject:** `skybreak-simulator` v0.1.0 — React + Zustand + Vite + TypeScript single-page card-game simulator

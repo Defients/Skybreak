@@ -1,0 +1,320 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  initializeGame,
+  createDefaultConfig,
+  type PartySetupChoice,
+} from "../engine/gameState";
+import {
+  startCombat,
+  applyDamage,
+  calculateDamage,
+} from "../engine/combatEngine";
+import { checkAndSetCombatEnd } from "../engine/combatRunner";
+import { getLivingHeroes } from "../engine/rulesEngine";
+import { RngEngine } from "../utils/random";
+import {
+  importSave,
+  getAllSaves,
+} from "../engine/saveLoad";
+import {
+  getTierBackground,
+  getSpireImage,
+  getLogoImage,
+  getMusicTrack,
+} from "../assets/assetRegistry";
+import {
+  aiPlayHeroTurn,
+  aiPickSplitChoice,
+  aiMerchantActions,
+} from "../engine/aiController";
+import { randomParty } from "../engine/batchSimulationEngine";
+import { useGameStore } from "../app/gameStore";
+import type { GameState } from "../types/gameState";
+
+/**
+ * Megaplan Phase 0 — Reproduced defect regression fixtures.
+ *
+ * Each `it.fails` test documents a defect that was reproduced against the
+ * codebase at HEAD 80540bc. The test body asserts the CORRECT expected
+ * behavior; because the defect is present, the assertion fails and the
+ * `it.fails` wrapper counts it as passing (fail-as-expected). When the
+ * corresponding Phase 1 fix lands, the test body starts passing and the
+ * `it.fails` wrapper reports a failure — that is the signal to drop the
+ * `.fails` so the test guards the fix going forward.
+ *
+ * Findings covered (see Enhancement Megaplan §4):
+ *   B1 — live final-boss victory fails to finalize
+ *   B2 — art/music unreachable through helpers
+ *   B3 — saves disappear from discovery / pass validation while unusable
+ *   B4 — old delayed actions mutate a replacement run
+ *   B5 — sampling and policy configuration defects
+ */
+describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
+  const sampleParty: PartySetupChoice[] = [
+    { className: "Bladedancer", suit: "spades", position: 1 },
+    { className: "Manipulator", suit: "hearts", position: 2 },
+    { className: "Tracker", suit: "clubs", position: 3 },
+  ];
+
+  beforeEach(() => {
+    localStorage.clear();
+    useGameStore.setState({ state: null, rng: null, validationWarnings: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useGameStore.setState({ state: null, rng: null, validationWarnings: [] });
+    localStorage.clear();
+  });
+
+  function makeValidState(seed = "mp0"): GameState {
+    return initializeGame(createDefaultConfig({ seed }), sampleParty);
+  }
+
+  // ─── B1: final-boss victory finalization ───────────────────────────────
+
+  it.fails("B1: doResolveRoom finalizes a final-boss victory to phase 'victory' with a score", () => {
+    const seed = "mp0-b1-boss";
+    const config = createDefaultConfig({ seed });
+    let state = initializeGame(config, sampleParty);
+    const rng = new RngEngine(seed);
+
+    // Start a final-boss combat.
+    state = startCombat(state, rng, { isFinalBoss: true });
+    if (!state.combat) throw new Error("setup: combat did not start");
+    expect(state.combat.isFinalBoss).toBe(true);
+
+    // Kill the boss via the canonical damage path and let the engine mark the result.
+    const bossHp = state.combat.monster.currentHp;
+    const res = applyDamage(state, state.combat.monster.id, "test", calculateDamage({ base: bossHp }), true);
+    state = checkAndSetCombatEnd(res.state);
+    if (!state.combat || state.combat.combatResult !== "victory") {
+      throw new Error("setup: boss kill did not produce combatResult=victory");
+    }
+    expect(getLivingHeroes(state).length).toBeGreaterThan(0);
+
+    // Inject into the live store and run the real finalization path.
+    useGameStore.setState({ state, rng, validationWarnings: [] });
+    useGameStore.getState().doResolveRoom();
+
+    const finalState = useGameStore.getState().state;
+    expect(finalState).not.toBeNull();
+    // CORRECT behavior: a final-boss victory reaches a terminal victory phase
+    // with a computed score. Currently the boss combat is cleared before
+    // checkVictory runs, so the run falls back to "exploration" with no score.
+    expect(finalState!.phase).toBe("victory");
+    expect(finalState!.score).toBeDefined();
+  });
+
+  // ─── B2: asset lookup ──────────────────────────────────────────────────
+
+  it.fails("B2: getTierBackground resolves a known tier background asset", () => {
+    // assets/backgrounds/tier1_background.png exists in the repo. The helper
+    // currently returns null because normalizeName keeps the file extension,
+    // storing the key as "tier1_background_png" while the lookup asks for
+    // "tier1_background".
+    expect(getTierBackground(1)).not.toBeNull();
+  });
+
+  it.fails("B2: getSpireImage resolves the spire asset", () => {
+    // assets/backgrounds/spire.webp exists. Key stored as "spire_webp".
+    expect(getSpireImage()).not.toBeNull();
+  });
+
+  it.fails("B2: getMusicTrack resolves a known theme track", () => {
+    // assets/...tier1_theme.mp3 exists. Key stored as "tier1_theme_mp3".
+    expect(getMusicTrack("tier1")).not.toBeNull();
+  });
+
+  it.fails("B2: getLogoImage resolves a logo asset (and does not reference a nonexistent skybreak_logo)", () => {
+    // assets/logo.png exists. getLogoImage currently looks up "skybreak_logo",
+    // a file that does not exist, so it returns null even apart from the
+    // extension bug.
+    expect(getLogoImage()).not.toBeNull();
+  });
+
+  // ─── B3: save discovery / validation / RNG ─────────────────────────────
+
+  it.fails("B3: legacy 'skyward_ascent_saves' saves are discoverable through getAllSaves", () => {
+    const state = makeValidState("mp0-b3-legacy");
+    const legacySave = {
+      version: "0.1.0",
+      gameState: state,
+      savedAt: new Date().toISOString(),
+      name: "Legacy Skyward Ascent Run",
+    };
+    localStorage.setItem("skyward_ascent_saves", JSON.stringify([legacySave]));
+    const saves = getAllSaves();
+    expect(saves.length).toBeGreaterThanOrEqual(1);
+    expect(saves.some((s) => s.name === "Legacy Skyward Ascent Run")).toBe(true);
+  });
+
+  it.fails("B3: importSave rejects saves with an invalid phase enum and malformed heroes", () => {
+    const badSave = {
+      version: "0.1.0",
+      savedAt: new Date().toISOString(),
+      name: "Bad",
+      gameState: {
+        phase: "not_a_real_phase",
+        party: { heroes: [{ /* no id, no name, no hp fields */ }] },
+        meta: {},
+        spire: {},
+      },
+    };
+    // CORRECT behavior: structural validation should reject an unknown phase
+    // enum and heroes missing required fields. Currently it accepts this.
+    expect(importSave(JSON.stringify(badSave))).toBeNull();
+  });
+
+  it.fails("B3: RngEngine.deserialize rejects an invalid (negative) step", () => {
+    // CORRECT behavior: a negative (or otherwise non-finite/huge) step is not a
+    // valid replay position and should be rejected. Currently it is accepted
+    // silently, and a huge positive step would loop unboundedly.
+    expect(() =>
+      RngEngine.deserialize({ seed: "x", step: -1, history: [] } as any)
+    ).toThrow();
+  });
+
+  // ─── B4: stale delayed monster-turn timer ──────────────────────────────
+
+  it.fails("B4: a monster-turn timer scheduled in run A does not mutate run B after reset", () => {
+    vi.useFakeTimers();
+
+    // Run A: enter combat (monster side first) and schedule the delayed turn.
+    const configA = createDefaultConfig({ seed: "mp0-b4-runA" });
+    let stateA = initializeGame(configA, sampleParty);
+    const rngA = new RngEngine("mp0-b4-runA");
+    stateA = startCombat(stateA, rngA);
+    if (!stateA.combat) throw new Error("setup A: combat did not start");
+    useGameStore.setState({ state: stateA, rng: rngA, validationWarnings: [] });
+    useGameStore.getState().doBeginCombat(); // schedules setTimeout(800)
+
+    // Reset (as a player would) and start a different run.
+    useGameStore.getState().doResetGame();
+
+    const configB = createDefaultConfig({ seed: "mp0-b4-runB" });
+    let stateB = initializeGame(configB, sampleParty);
+    const rngB = new RngEngine("mp0-b4-runB");
+    stateB = startCombat(stateB, rngB);
+    if (!stateB.combat) throw new Error("setup B: combat did not start");
+    useGameStore.setState({ state: stateB, rng: rngB, validationWarnings: [] });
+
+    const beforeTimer = JSON.stringify(useGameStore.getState().state);
+
+    // Fire the timer that was scheduled by run A.
+    vi.advanceTimersByTime(800);
+
+    const afterTimer = JSON.stringify(useGameStore.getState().state);
+    // CORRECT behavior: the stale callback must not apply run A's monster turn
+    // to run B. Currently it fetches the latest state and executes against it.
+    expect(afterTimer).toBe(beforeTimer);
+  });
+
+  // ─── B5: sampling and policy defects ───────────────────────────────────
+
+  it.fails("B5: randomParty can assign spades — all four suits are reachable", () => {
+    const rng = new RngEngine("mp0-b5-suits");
+    // shuffleDeck over 4 classes consumes 3 RNG draws (steps 0..2).
+    // The first hero's suit-select rollD6 is therefore at step 3.
+    // Force it to a max roll (d6 = 6).
+    rng.forceResult(3, 0.999); // floor(0.999 * 6) + 1 = 6
+    const party = randomParty(rng);
+    // CORRECT behavior: a max roll should be able to select the 4th suit
+    // (spades). Currently Math.min(3, Math.floor((roll-1)/2)) caps at index 2,
+    // so spades is never selected by any roll.
+    expect(party.some((p) => p.suit === "spades")).toBe(true);
+  });
+
+  it.fails("B5: aiPickSplitChoice 'random' returns an in-bounds index for d6=6 with 3 options", () => {
+    const state = makeValidState("mp0-b5-split");
+    const rng = new RngEngine("mp0-b5-split");
+    rng.forceResult(0, 0.999); // d6 = 6
+    const splitState: GameState = {
+      ...state,
+      spire: {
+        ...state.spire,
+        splitChoicePending: true,
+        currentRoom: {
+          index: 0,
+          type: "split" as const,
+          symbol: "§",
+          tier: 1,
+          resolved: false,
+          splitOptions: [
+            { index: 0, type: "combat", symbol: "♣", tier: 1, resolved: false },
+            { index: 1, type: "merchant", symbol: "♦", tier: 1, resolved: false },
+            { index: 2, type: "rest", symbol: "♥", tier: 1, resolved: false },
+          ],
+        },
+      },
+    };
+    const idx = aiPickSplitChoice(splitState, rng, "random");
+    // CORRECT behavior: the index must be a valid array offset. Currently
+    // Math.floor(6 * 3 / 6) === 3, which is out of bounds for a 3-option split.
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(3);
+  });
+
+  it.fails("B5: 'never' item-usage policy prevents item use under defensive strategy", () => {
+    const seed = "mp0-b5-never";
+    const config = createDefaultConfig({ seed });
+    let state = initializeGame(config, sampleParty);
+    const rng = new RngEngine(seed);
+    state = startCombat(state, rng);
+    if (!state.combat) throw new Error("setup: combat did not start");
+
+    // Give every hero a healing item and drop them below the defensive threshold.
+    state = {
+      ...state,
+      combat: {
+        ...state.combat,
+        activeSide: "heroes",
+        completedHeroTurns: [],
+        heroTurnOrder: state.party.heroes.map((h) => h.id),
+      },
+      party: {
+        ...state.party,
+        heroes: state.party.heroes.map((h) => ({
+          ...h,
+          currentHp: 1,
+          items: [
+            {
+              id: "minor-potion-1",
+              name: "Minor Potion",
+              itemId: "minor_potion",
+              effect: "heal",
+              stackLimit: 5,
+              quantity: 1,
+              tags: ["healing"],
+            },
+          ],
+        })),
+      },
+    };
+
+    const heroId = state.party.heroes[0].id;
+    // healThreshold 0 encodes the "never" item-usage policy.
+    const decision = aiPlayHeroTurn(state, rng, heroId, "defensive", { healThreshold: 0 });
+    // CORRECT behavior: "never" means no item use, so the hero attacks.
+    // Currently defensive clamps with Math.max(0.5, 0) = 0.5 and uses the item.
+    expect(decision.action).toBe("attack");
+  });
+
+  it.fails("B5: aiMerchantActions does not propose purchases the party cannot afford", () => {
+    const state = makeValidState("mp0-b5-merchant");
+    // Hurt heroes, zero gold.
+    const merchantState: GameState = {
+      ...state,
+      phase: "merchant",
+      party: {
+        ...state.party,
+        gold: 0,
+        heroes: state.party.heroes.map((h) => ({ ...h, currentHp: 1, alive: true })),
+      },
+    };
+    const purchases = aiMerchantActions(merchantState, "balanced");
+    // CORRECT behavior: with 0 gold, no purchasable action should be proposed.
+    // Currently a Minor Potion is proposed for every hurt hero with no gold check.
+    expect(purchases.filter((p) => p.type !== "skip").length).toBe(0);
+  });
+});
