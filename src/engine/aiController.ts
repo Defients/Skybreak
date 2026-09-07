@@ -4,6 +4,7 @@ import type { CombatStrategy, MerchantStrategy, RestStrategy, SplitStrategy } fr
 import { getLivingHeroes, getHeroById, getDeadHeroes } from "./rulesEngine";
 import { executeHeroAction, useItem } from "./heroAbilityEngine";
 import { findItemByTag } from "../utils/tagMatchers";
+import { getItemCost, getUpgradeCost } from "../data/items";
 
 export interface AICombatDecision {
   action: "attack" | "use_item" | "end_turn";
@@ -16,9 +17,9 @@ export interface AiPlayOptions {
    * Optional heal threshold (0..1) derived from an item-usage strategy. When
    * provided, it overrides the per-strategy default heal threshold so that
    * batch simulation can tune healing aggressiveness without reimplementing
-   * the decision logic. defensive/survivalist use max(strategyDefault,
-   * healThreshold) so a higher item-usage threshold can only make healing
-   * MORE aggressive, never less.
+   * the decision logic. A value of 0 means "never use items" (the "never"
+   * item-usage policy) and is respected exactly — no clamping to a strategy
+   * default floor.
    */
   healThreshold?: number;
 }
@@ -53,8 +54,11 @@ export function aiPlayHeroTurn(
       return { action: "attack", targetId: monsterId };
 
     case "defensive": {
-      const threshold = ht === undefined ? 0.5 : Math.max(0.5, ht);
-      if (hpRatio < threshold && healItem) {
+      // Respect ht=0 as "never use items"; otherwise use the strategy default
+      // or the caller-provided threshold (no floor clamping that would
+      // override an explicit "never").
+      const threshold = ht === undefined ? 0.5 : ht;
+      if (threshold > 0 && hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       return { action: "attack", targetId: monsterId };
@@ -62,15 +66,15 @@ export function aiPlayHeroTurn(
 
     case "balanced": {
       const threshold = ht === undefined ? 0.3 : ht;
-      if (hpRatio < threshold && healItem) {
+      if (threshold > 0 && hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       return { action: "attack", targetId: monsterId };
     }
 
     case "survivalist": {
-      const threshold = ht === undefined ? 0.4 : Math.max(0.4, ht);
-      if (hpRatio < threshold && healItem) {
+      const threshold = ht === undefined ? 0.4 : ht;
+      if (threshold > 0 && hpRatio < threshold && healItem) {
         return { action: "use_item", itemName: healItem.name, targetId: heroId };
       }
       if (hpRatio < 0.2) {
@@ -135,8 +139,11 @@ export function aiPickSplitChoice(
   if (!room?.splitOptions) return 0;
 
   if (strategy === "random") {
-    return Math.floor(
-      (rng.rollD6("split_random").total * room.splitOptions.length) / 6
+    // Map d6 results 1-6 onto split option indices 0..length-1. Using
+    // (roll-1) ensures d6=6 maps to the last valid index, not one past it.
+    return Math.min(
+      room.splitOptions.length - 1,
+      Math.floor(((rng.rollD6("split_random").total - 1) * room.splitOptions.length) / 6)
     );
   }
 
@@ -206,17 +213,20 @@ export function aiMerchantActions(
   const gold = state.party.gold;
 
   if (strategy === "heal-items" || strategy === "balanced") {
+    const potionCost = getItemCost("Minor Potion", state.spire.tier);
     for (const hero of living) {
-      if (hero.currentHp / hero.maxHp < 0.6) {
+      if (hero.currentHp / hero.maxHp < 0.6 && gold >= potionCost) {
         purchases.push({ type: "item", name: "Minor Potion", heroId: hero.id });
       }
     }
-    if (strategy === "balanced" && gold > 60) {
+    const upgradeCost = getUpgradeCost("HP Increase", state.spire.tier);
+    if (strategy === "balanced" && gold >= upgradeCost) {
       purchases.push({ type: "upgrade", name: "HP Increase", heroId: living[0].id });
     }
   } else if (strategy === "upgrades") {
+    const upgradeCost = getUpgradeCost("HP Increase", state.spire.tier);
     for (const hero of living) {
-      if (gold > 60) {
+      if (gold >= upgradeCost) {
         purchases.push({ type: "upgrade", name: "HP Increase", heroId: hero.id });
       }
     }

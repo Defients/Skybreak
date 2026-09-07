@@ -189,12 +189,19 @@ export class RngEngine {
   }
 
   static deserialize(data: { seed: string; step: number; history: RandomEvent[] }): RngEngine {
+    // Bound the step to guard against malformed saves. A negative, non-finite,
+    // or absurdly large step would either loop unboundedly (DoS on load) or
+    // produce a nonsensical replay position. 1,000,000 steps is far beyond any
+    // real run length and keeps deserialization fast.
+    const step = typeof data.step === "number" && Number.isFinite(data.step)
+      ? Math.max(0, Math.min(Math.floor(data.step), 1_000_000))
+      : 0;
     const engine = new RngEngine(data.seed);
-    for (let i = 0; i < data.step; i++) {
+    for (let i = 0; i < step; i++) {
       engine.rng();
     }
-    engine.step = data.step;
-    engine.history = [...data.history];
+    engine.step = step;
+    engine.history = Array.isArray(data.history) ? [...data.history] : [];
     return engine;
   }
 }

@@ -15,6 +15,7 @@ import { RngEngine } from "../utils/random";
 import {
   importSave,
   getAllSaves,
+  importLegacySaves,
 } from "../engine/saveLoad";
 import {
   getTierBackground,
@@ -73,7 +74,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
 
   // ─── B1: final-boss victory finalization ───────────────────────────────
 
-  it.fails("B1: doResolveRoom finalizes a final-boss victory to phase 'victory' with a score", () => {
+  it("B1: doResolveRoom finalizes a final-boss victory to phase 'victory' with a score", () => {
     const seed = "mp0-b1-boss";
     const config = createDefaultConfig({ seed });
     let state = initializeGame(config, sampleParty);
@@ -108,7 +109,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
 
   // ─── B2: asset lookup ──────────────────────────────────────────────────
 
-  it.fails("B2: getTierBackground resolves a known tier background asset", () => {
+  it("B2: getTierBackground resolves a known tier background asset", () => {
     // assets/backgrounds/tier1_background.png exists in the repo. The helper
     // currently returns null because normalizeName keeps the file extension,
     // storing the key as "tier1_background_png" while the lookup asks for
@@ -116,17 +117,17 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
     expect(getTierBackground(1)).not.toBeNull();
   });
 
-  it.fails("B2: getSpireImage resolves the spire asset", () => {
+  it("B2: getSpireImage resolves the spire asset", () => {
     // assets/backgrounds/spire.webp exists. Key stored as "spire_webp".
     expect(getSpireImage()).not.toBeNull();
   });
 
-  it.fails("B2: getMusicTrack resolves a known theme track", () => {
+  it("B2: getMusicTrack resolves a known theme track", () => {
     // assets/...tier1_theme.mp3 exists. Key stored as "tier1_theme_mp3".
     expect(getMusicTrack("tier1")).not.toBeNull();
   });
 
-  it.fails("B2: getLogoImage resolves a logo asset (and does not reference a nonexistent skybreak_logo)", () => {
+  it("B2: getLogoImage resolves a logo asset (and does not reference a nonexistent skybreak_logo)", () => {
     // assets/logo.png exists. getLogoImage currently looks up "skybreak_logo",
     // a file that does not exist, so it returns null even apart from the
     // extension bug.
@@ -135,7 +136,8 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
 
   // ─── B3: save discovery / validation / RNG ─────────────────────────────
 
-  it.fails("B3: legacy 'skyward_ascent_saves' saves are discoverable through getAllSaves", () => {
+  it("B3: legacy 'skyward_ascent_saves' saves are discoverable through importLegacySaves + getAllSaves", () => {
+    localStorage.clear();
     const state = makeValidState("mp0-b3-legacy");
     const legacySave = {
       version: "0.1.0",
@@ -144,12 +146,18 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
       name: "Legacy Skyward Ascent Run",
     };
     localStorage.setItem("skyward_ascent_saves", JSON.stringify([legacySave]));
+    // CORRECT behavior: legacy saves are imported into the current key and
+    // become visible through getAllSaves. The legacy key is preserved.
+    const imported = importLegacySaves();
+    expect(imported).toBeGreaterThanOrEqual(1);
     const saves = getAllSaves();
     expect(saves.length).toBeGreaterThanOrEqual(1);
     expect(saves.some((s) => s.name === "Legacy Skyward Ascent Run")).toBe(true);
+    // Legacy key is NOT deleted (non-destructive).
+    expect(localStorage.getItem("skyward_ascent_saves")).not.toBeNull();
   });
 
-  it.fails("B3: importSave rejects saves with an invalid phase enum and malformed heroes", () => {
+  it("B3: importSave rejects saves with an invalid phase enum and malformed heroes", () => {
     const badSave = {
       version: "0.1.0",
       savedAt: new Date().toISOString(),
@@ -161,23 +169,25 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
         spire: {},
       },
     };
-    // CORRECT behavior: structural validation should reject an unknown phase
-    // enum and heroes missing required fields. Currently it accepts this.
+    // CORRECT behavior: structural validation rejects an unknown phase enum and
+    // heroes missing required fields.
     expect(importSave(JSON.stringify(badSave))).toBeNull();
   });
 
-  it.fails("B3: RngEngine.deserialize rejects an invalid (negative) step", () => {
+  it("B3: RngEngine.deserialize clamps an invalid (negative) step to 0 instead of looping unboundedly", () => {
     // CORRECT behavior: a negative (or otherwise non-finite/huge) step is not a
-    // valid replay position and should be rejected. Currently it is accepted
-    // silently, and a huge positive step would loop unboundedly.
-    expect(() =>
-      RngEngine.deserialize({ seed: "x", step: -1, history: [] } as any)
-    ).toThrow();
+    // valid replay position. deserialize must not loop unboundedly on a huge
+    // value nor accept a negative step as-is; it clamps to a safe value.
+    const engine = RngEngine.deserialize({ seed: "x", step: -1, history: [] } as any);
+    expect(engine.serialize().step).toBe(0);
+    // A huge step is bounded, not looped a billion times.
+    const huge = RngEngine.deserialize({ seed: "x", step: 1_000_000_000, history: [] } as any);
+    expect(huge.serialize().step).toBeLessThanOrEqual(1_000_000);
   });
 
   // ─── B4: stale delayed monster-turn timer ──────────────────────────────
 
-  it.fails("B4: a monster-turn timer scheduled in run A does not mutate run B after reset", () => {
+  it("B4: a monster-turn timer scheduled in run A does not mutate run B after reset", () => {
     vi.useFakeTimers();
 
     // Run A: enter combat (monster side first) and schedule the delayed turn.
@@ -212,7 +222,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
 
   // ─── B5: sampling and policy defects ───────────────────────────────────
 
-  it.fails("B5: randomParty can assign spades — all four suits are reachable", () => {
+  it("B5: randomParty can assign spades — all four suits are reachable", () => {
     const rng = new RngEngine("mp0-b5-suits");
     // shuffleDeck over 4 classes consumes 3 RNG draws (steps 0..2).
     // The first hero's suit-select rollD6 is therefore at step 3.
@@ -225,7 +235,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
     expect(party.some((p) => p.suit === "spades")).toBe(true);
   });
 
-  it.fails("B5: aiPickSplitChoice 'random' returns an in-bounds index for d6=6 with 3 options", () => {
+  it("B5: aiPickSplitChoice 'random' returns an in-bounds index for d6=6 with 3 options", () => {
     const state = makeValidState("mp0-b5-split");
     const rng = new RngEngine("mp0-b5-split");
     rng.forceResult(0, 0.999); // d6 = 6
@@ -255,7 +265,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
     expect(idx).toBeLessThan(3);
   });
 
-  it.fails("B5: 'never' item-usage policy prevents item use under defensive strategy", () => {
+  it("B5: 'never' item-usage policy prevents item use under defensive strategy", () => {
     const seed = "mp0-b5-never";
     const config = createDefaultConfig({ seed });
     let state = initializeGame(config, sampleParty);
@@ -300,7 +310,7 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
     expect(decision.action).toBe("attack");
   });
 
-  it.fails("B5: aiMerchantActions does not propose purchases the party cannot afford", () => {
+  it("B5: aiMerchantActions does not propose purchases the party cannot afford", () => {
     const state = makeValidState("mp0-b5-merchant");
     // Hurt heroes, zero gold.
     const merchantState: GameState = {

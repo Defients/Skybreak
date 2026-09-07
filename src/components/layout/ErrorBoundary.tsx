@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { quarantineAutosave } from "../../engine/saveLoad";
 
 interface Props {
   children: ReactNode;
@@ -7,25 +8,33 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  quarantined: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, quarantined: false };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, quarantined: false };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error("[ErrorBoundary]", error, info.componentStack);
   }
 
+  // Non-destructive recovery: move the autosave to a quarantine key instead of
+  // deleting it, so the user can export/recover the run later. The previous
+  // "removeItem" path permanently destroyed the only copy of an in-progress run.
   handleReset = (): void => {
-    localStorage.removeItem("skybreak_autosave");
-    this.setState({ hasError: false, error: null });
+    const quarantined = quarantineAutosave() !== null;
+    // Only clear the live autosave after it has been safely quarantined.
+    if (quarantined) {
+      localStorage.removeItem("skybreak_autosave");
+    }
+    this.setState({ hasError: false, error: null, quarantined });
     window.location.reload();
   };
 
@@ -44,11 +53,14 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error.message}
               </pre>
             )}
+            <p className="text-spire-muted text-xs">
+              Your autosave has been quarantined (not deleted) so it can be recovered.
+            </p>
             <button
               className="btn-gold px-6 py-2.5"
               onClick={this.handleReset}
             >
-              Clear Autosave & Restart
+              Quarantine Autosave & Restart
             </button>
           </div>
         </div>

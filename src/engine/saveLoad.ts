@@ -5,7 +5,31 @@ import { RngEngine } from "../utils/random";
 
 const STORAGE_KEY = "skybreak_saves";
 const AUTOSAVE_KEY = "skybreak_autosave";
+// Last-good autosave: the previous autosave is preserved here so a corrupt
+// current autosave can be recovered non-destructively.
+const AUTOSAVE_LASTGOOD_KEY = "skybreak_autosave_lastgood";
+// Quarantine: a fatal-error recovery moves the autosave here instead of
+// deleting it, so the user can export/recover it after a reload.
+const AUTOSAVE_QUARANTINE_KEY = "skybreak_autosave_quarantine";
+// Legacy keys from the pre-rename "Skyward Ascent" build. Saves written under
+// these keys are discovered and merged so existing players do not lose runs.
+const LEGACY_STORAGE_KEY = "skyward_ascent_saves";
+const LEGACY_AUTOSAVE_KEY = "skyward_ascent_autosave";
 const VERSION = "0.1.0";
+
+// Valid GamePhase values (must match src/types/gameState.ts GamePhase).
+const VALID_PHASES = new Set<string>([
+  "setup",
+  "exploration",
+  "merchant",
+  "rest",
+  "combat_setup",
+  "combat",
+  "combat_cleanup",
+  "tier_transition",
+  "victory",
+  "defeat",
+]);
 
 // ─── Legacy save migration (Astrizda canon pass) ─────────────────────────────
 // Saves created before the canon migration may contain legacy display names.
@@ -135,6 +159,12 @@ export function autosave(state: GameState): boolean {
       savedAt: new Date().toISOString(),
       name: "Autosave",
     };
+    // Preserve the previous autosave as last-good before overwriting, so a
+    // corrupt current autosave can be recovered non-destructively.
+    const prev = localStorage.getItem(AUTOSAVE_KEY);
+    if (prev) {
+      localStorage.setItem(AUTOSAVE_LASTGOOD_KEY, prev);
+    }
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(saveData));
     return true;
   } catch (e) {
@@ -159,9 +189,20 @@ function isValidSaveShape(data: unknown): data is SaveData {
   const g = gs as Record<string, unknown>;
   // Minimum required gameState fields.
   if (typeof g.phase !== "string") return false;
+  // Phase must be a known GamePhase value, not an arbitrary string.
+  if (!VALID_PHASES.has(g.phase)) return false;
   if (typeof g.party !== "object" || g.party === null) return false;
   const party = g.party as Record<string, unknown>;
   if (!Array.isArray(party.heroes)) return false;
+  // Each hero must be a non-null object with a string id and className.
+  // Rejects malformed heroes (e.g. empty objects) that would crash the engine.
+  for (const h of party.heroes) {
+    if (typeof h !== "object" || h === null) return false;
+    const hero = h as Record<string, unknown>;
+    if (typeof hero.id !== "string" || hero.id.length === 0) return false;
+    if (typeof hero.className !== "string" || hero.className.length === 0) return false;
+    if (typeof hero.currentHp !== "number" || typeof hero.maxHp !== "number") return false;
+  }
   if (typeof g.meta !== "object" || g.meta === null) return false;
   if (typeof g.spire !== "object" || g.spire === null) return false;
   // RNG must be present and well-shaped (or absent, which is tolerated).
@@ -170,6 +211,9 @@ function isValidSaveShape(data: unknown): data is SaveData {
     const rng = g.rng as Record<string, unknown>;
     if (typeof rng.seed !== "string") return false;
     if (typeof rng.step !== "number") return false;
+    // Bound the step: a negative, non-finite, or absurdly large step is not a
+    // valid replay position and would loop unboundedly in deserialize.
+    if (!Number.isFinite(rng.step) || rng.step < 0 || rng.step > 1_000_000) return false;
   }
   return true;
 }
@@ -200,19 +244,98 @@ export function loadSave(saveData: SaveData): GameState | null {
   }
 }
 
-export function getAllSaves(): SaveData[] {
+function readCurrentSaves(): SaveData[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as SaveData[];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SaveData[]) : [];
   } catch {
     return [];
   }
 }
 
+function readLegacySaves(): SaveData[] {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SaveData[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function getAllSaves(): SaveData[] {
+  return readCurrentSaves();
+}
+
+/**
+ * Idempotently import saves from the legacy "skyward_ascent_saves" key into
+ * the current "skybreak_saves" key. Merges without overwriting newer saves
+ * (dedupes by gameState.meta.gameId). The legacy key is NOT deleted, so the
+ * original bytes are retained for recovery. Returns the number imported.
+ */
+export function importLegacySaves(): number {
+  try {
+    const legacy = readLegacySaves();
+    if (legacy.length === 0) return 0;
+    const current = readCurrentSaves();
+    const seen = new Set(
+      current.map((s) => s.gameState?.meta?.gameId).filter(Boolean) as string[]
+    );
+    const merged = [...current];
+    let added = 0;
+    for (const ls of legacy) {
+      if (!isValidSaveShape(ls)) continue;
+      const id = ls.gameState?.meta?.gameId as string | undefined;
+      if (id && seen.has(id)) continue; // don't overwrite a newer current save
+      if (id) seen.add(id);
+      merged.push(ls);
+      added++;
+    }
+    if (added > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    }
+    return added;
+  } catch {
+    return 0;
+  }
+}
+
 export function getAutosave(): SaveData | null {
   try {
+    let raw = localStorage.getItem(AUTOSAVE_KEY);
+    // Fall back to the legacy autosave key if the current one is absent, so
+    // players who upgrade mid-run do not lose their autosave.
+    if (!raw) raw = localStorage.getItem(LEGACY_AUTOSAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as SaveData;
+    return { ...data, gameState: migrateLegacyState(data.gameState) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move the current autosave to a quarantine key instead of deleting it, so a
+ * fatal-error recovery preserves the run for export/recovery. Returns the
+ * quarantined bytes (or null if there was nothing to quarantine).
+ */
+export function quarantineAutosave(): string | null {
+  try {
     const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    localStorage.setItem(AUTOSAVE_QUARANTINE_KEY, raw);
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+export function getLastGoodAutosave(): SaveData | null {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_LASTGOOD_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SaveData;
     return { ...data, gameState: migrateLegacyState(data.gameState) };

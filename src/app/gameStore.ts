@@ -51,10 +51,60 @@ function withRng(state: GameState, rng: RngEngine | null): GameState {
   return { ...state, rng: rng.serialize() };
 }
 
+/**
+ * Bump the session epoch and cancel any pending delayed monster-turn timer.
+ * Called on start/reset/load so that a timer scheduled by a previous run can
+ * never fire against the new state. The epoch is a monotonic ownership token:
+ * a scheduled callback captures the epoch at scheduling time and bails if it
+ * has advanced by the time the callback fires.
+ */
+function bumpSessionEpoch(): void {
+  const store = useGameStore;
+  const existing = store.getState().monsterTurnTimer;
+  if (existing) clearTimeout(existing);
+  store.setState({
+    sessionEpoch: store.getState().sessionEpoch + 1,
+    monsterTurnTimer: null,
+  });
+}
+
+/**
+ * Schedule the delayed monster turn for playable/companion/hybrid modes.
+ * Captures the current session epoch; the callback no-ops if the session has
+ * moved on (reset/load/new run) before the timer fires. Only one monster-turn
+ * timer is ever pending — a previously pending timer is cleared first.
+ */
+function scheduleMonsterTurn(delay = 800): void {
+  const store = useGameStore;
+  const existing = store.getState().monsterTurnTimer;
+  if (existing) clearTimeout(existing);
+  const epoch = store.getState().sessionEpoch;
+  const timer = setTimeout(() => {
+    // Stale-timer guard: if the session advanced, this callback belongs to a
+    // previous run and must not touch the current state.
+    if (store.getState().sessionEpoch !== epoch) return;
+    const { state: monsterState, rng: currentRng } = store.getState();
+    if (!monsterState || !currentRng) return;
+    if (monsterState.combat?.activeSide !== "monster") return;
+    if (monsterState.combat?.combatResult) return;
+    const afterMonster = executeMonsterTurn(monsterState, currentRng);
+    const monsterFinal = withRng(afterMonster, currentRng);
+    store.setState({ state: monsterFinal, monsterTurnTimer: null });
+    autosave(monsterFinal);
+  }, delay);
+  store.setState({ monsterTurnTimer: timer });
+}
+
 interface GameStore {
   state: GameState | null;
   rng: RngEngine | null;
   validationWarnings: { id: string; message: string; severity: string }[];
+  // Internal plumbing: a monotonically increasing session epoch guards stale
+  // delayed monster-turn timers from mutating a replacement run after a
+  // reset/load/new-run. monsterTurnTimer tracks the single pending timer so it
+  // can be cancelled on session changes.
+  sessionEpoch: number;
+  monsterTurnTimer: ReturnType<typeof setTimeout> | null;
 
   startNewRun: (config: Partial<SimulationConfig>, partyChoices: PartySetupChoice[]) => void;
   doAdvanceRoom: () => void;
@@ -93,10 +143,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   state: null,
   rng: null,
   validationWarnings: [],
+  sessionEpoch: 0,
+  monsterTurnTimer: null,
 
   startNewRun: (config, partyChoices) => {
     resetIdCounter();
     resetEventSequence();
+    bumpSessionEpoch();
     const fullConfig = applyModeDefaults(createDefaultConfig(config));
     const state = initializeGame(fullConfig, partyChoices);
     const rng = new RngEngine(fullConfig.seed);
@@ -165,16 +218,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       autosave(finalState);
       return;
     }
-    setTimeout(() => {
-      const { state: monsterState, rng: currentRng } = get();
-      if (!monsterState || !currentRng) return;
-      if (monsterState.combat?.activeSide !== "monster") return;
-      if (monsterState.combat?.combatResult) return;
-      const afterMonster = executeMonsterTurn(monsterState, currentRng);
-      const finalState = withRng(afterMonster, currentRng);
-      set({ state: finalState });
-      autosave(finalState);
-    }, 800);
+    scheduleMonsterTurn();
   },
 
   doFlipCards: (actorId) => {
@@ -239,16 +283,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         autosave(monsterFinal);
         return;
       }
-      setTimeout(() => {
-        const { state: monsterState, rng: currentRng } = get();
-        if (!monsterState || !currentRng) return;
-        if (monsterState.combat?.activeSide !== "monster") return;
-        if (monsterState.combat?.combatResult) return;
-        const afterMonster = executeMonsterTurn(monsterState, currentRng);
-        const monsterFinal = withRng(afterMonster, currentRng);
-        set({ state: monsterFinal });
-        autosave(monsterFinal);
-      }, 800);
+      scheduleMonsterTurn();
       return;
     }
 
@@ -303,16 +338,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         autosave(monsterFinal);
         return;
       }
-      setTimeout(() => {
-        const { state: monsterState, rng: currentRng } = get();
-        if (!monsterState || !currentRng) return;
-        if (monsterState.combat?.activeSide !== "monster") return;
-        if (monsterState.combat?.combatResult) return;
-        const afterMonster = executeMonsterTurn(monsterState, currentRng);
-        const monsterFinal = withRng(afterMonster, currentRng);
-        set({ state: monsterFinal });
-        autosave(monsterFinal);
-      }, 800);
+      scheduleMonsterTurn();
       return;
     }
 
@@ -457,9 +483,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { state, rng } = get();
     if (!state) return;
     let newState = { ...state };
+    // Capture the final-boss victory outcome BEFORE cleanupCombat clears the
+    // combat object. checkVictory requires state.combat to still be present
+    // (it reads combat.isFinalBoss / combat.monster.alive), so it must run
+    // before cleanup. This mirrors the batch path (batchSimulationEngine final_boss).
+    let finalBossVictory = false;
 
     if (state.phase === "combat" && state.combat?.combatResult === "victory") {
       newState = grantRewards(newState);
+      finalBossVictory = checkVictory(newState);
       newState = cleanupCombat(newState);
       newState = markRoomResolved(newState);
       newState = advanceRoom(newState);
@@ -481,7 +513,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newState = advanceRoom(newState);
     }
 
-    if (checkVictory(newState)) {
+    if (finalBossVictory) {
       newState = finalizeRunStats(newState);
       const score = calculateScore(newState);
       newState = { ...newState, phase: "victory", score };
@@ -545,6 +577,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!loadedState || typeof loadedState !== "object") return;
     if (!loadedState.party || !Array.isArray(loadedState.party.heroes)) return;
     if (!loadedState.meta || !loadedState.spire) return;
+    // Invalidate any pending delayed monster-turn timer from the prior run.
+    bumpSessionEpoch();
     // Reconstruct RNG from serialized state (or create a fallback)
     let rng: RngEngine;
     try {
@@ -576,6 +610,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Reset module-level mutable state to prevent bleed across runs.
     resetEventSequence();
     resetIdCounter();
+    // Invalidate any pending delayed monster-turn timer from the prior run.
+    bumpSessionEpoch();
     // Reset hybrid AI control state so a new run starts with a clean toggle.
     useHybridStore.getState().resetAIControl();
     set({ state: null, rng: null, validationWarnings: [] });

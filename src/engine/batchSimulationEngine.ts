@@ -53,7 +53,11 @@ export function randomParty(rng: RngEngine): PartySetupChoice[] {
   const chosen = shuffled.slice(0, 3);
   return chosen.map((className, i) => {
     const suitRoll = rng.rollD6("party_suit_select");
-    const suit = ALL_SUITS[Math.min(3, Math.floor((suitRoll.total - 1) / 2))];
+    // Map d6 results 1-6 onto ALL_SUITS indices 0..3 so all four suits are
+    // reachable. The previous Math.floor((roll-1)/2) capped at index 2, making
+    // spades (index 3) unreachable. The general formula (roll-1)*N/6 spreads
+    // d6 across N buckets: d6=1→0, d6=6→3.
+    const suit = ALL_SUITS[Math.min(ALL_SUITS.length - 1, Math.floor((suitRoll.total - 1) * ALL_SUITS.length / 6))];
     return {
       className,
       suit,
@@ -71,7 +75,14 @@ function pickSplitChoice(
   if (!room?.splitOptions) return 0;
 
   if (strategy === "random") {
-    return Math.floor(rng.rollD6("split_random").total * room.splitOptions.length / 6);
+    // Map d6 results 1-6 onto split option indices 0..length-1. Using
+    // (roll-1) ensures d6=6 maps to the last valid index, not one past it.
+    // The previous (roll * length / 6) produced out-of-bounds indices when
+    // roll=6 (e.g. 6*3/6 = 3, invalid for a 3-option split).
+    return Math.min(
+      room.splitOptions.length - 1,
+      Math.floor(((rng.rollD6("split_random").total - 1) * room.splitOptions.length) / 6)
+    );
   }
 
   if (strategy === "safe") {

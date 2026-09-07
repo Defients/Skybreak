@@ -34,10 +34,15 @@ for (const [path, raw] of Object.entries(allAssets)) {
   if (!url) continue;
   // Store by full path
   assetPathMap[path] = url;
-  // Store by normalized filename (lowercase, no extension, dashes→underscores)
+  // Store by normalized filename (lowercase, extension stripped, dashes→underscores)
   // Uses the same normalizeName function as lookup() so keys match queries.
   const filename = path.split("/").pop() || path;
-  const normalized = normalizeName(filename);
+  // Strip the file extension BEFORE normalizing, so "tier1_background.png"
+  // becomes key "tier1_background" (matching extensionless lookups), not
+  // "tier1_background_png". Handles png/webp/jpg/jpeg/gif/svg/mp3/ogg and
+  // uppercase variants.
+  const baseName = filename.replace(/\.[a-z0-9]+$/i, "");
+  const normalized = normalizeName(baseName);
   if (!assetMap[normalized]) {
     assetMap[normalized] = url;
   }
@@ -361,7 +366,9 @@ export function getDiceImage(value: number): string | null {
 // ============================================================
 
 export function getLogoImage(): string | null {
-  return lookup("skybreak_logo");
+  // The brand asset is assets/logo.png. Try the brand alias first (for
+  // future skybreak_logo.* files), then fall back to the actual file name.
+  return lookup("skybreak_logo") ?? lookup("logo");
 }
 
 export function getCardBackImage(): string | null {
