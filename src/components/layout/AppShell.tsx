@@ -298,13 +298,13 @@ export function AppShell({ state, screen, onNavigate, showNav, isHomePage, child
               {logoUrl ? (
                 <img
                   src={logoUrl}
-                  alt="Skyward Ascent"
+                  alt="Skybreak"
                   className="h-11 sm:h-16 w-auto absolute top-1/2 -translate-y-1/3 left-1.5 sm:left-4 max-w-[120px] sm:max-w-none object-contain"
                   style={{ filter: "drop-shadow(0 0 12px rgba(34, 211, 238, 0.15))" }}
                 />
               ) : (
                 <h1 className="text-lg sm:text-xl font-display gold-text tracking-wide cosmo-text-glow-gold flex items-center gap-1.5">
-                  <span className="text-spire-accent">⟁</span> Skyward Ascent
+                  <span className="text-spire-accent">⟁</span> Skybreak
                 </h1>
               )}
             </button>
@@ -628,7 +628,7 @@ export function AppShell({ state, screen, onNavigate, showNav, isHomePage, child
         }}
       >
         <div className="leading-tight">
-          <div>Skyward Ascent Simulator v0.1.0</div>
+          <div>Skybreak Simulator v0.1.0</div>
           <div>Deterministic Tactical Card Game Engine</div>
         </div>
       </footer>

@@ -21,8 +21,8 @@ import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
 import { formatAbilityText } from "../../utils/formatAbilityText";
 import type { WeaponRarity } from "../../types/inventory";
 import type { HeroClassName } from "../../types/heroes";
-import gameRulesMarkdown from "../../../SkywardAscent-OfficialRules.md?raw";
-import pcgRulesMarkdown from "../../../SkywardAscent-CardGame-Rules.md?raw";
+import gameRulesMarkdown from "../../../Skybreak-OfficialRules.md?raw";
+import pcgRulesMarkdown from "../../../Skybreak-CardGame-Rules.md?raw";
 
 interface Props {
   onBack: () => void;
@@ -72,7 +72,7 @@ const GALLERY_CATEGORIES: { label: string; icon: string; assets: AssetEntry[] }[
   { label: "Backgrounds", icon: "🌌", assets: collectAssets("/backgrounds/") },
   { label: "Dice", icon: "🎲", assets: collectAssets("/dice/") },
   { label: "Misc", icon: "📦", assets: [
-    ...collectAssets("skyward_ascent_logo"),
+    ...collectAssets("skybreak_logo"),
     ...collectAssets("card_back"),
     ...collectAssets("/door.png"),
     ...collectAssets("gold_coin"),
@@ -560,7 +560,7 @@ function RulesTab() {
               borderBottom: "1px solid rgba(34, 211, 238, 0.12)",
             }}
           >
-            <span className="text-sm font-display gold-text">Skyward Ascent — Official Rules v3.1</span>
+            <span className="text-sm font-display gold-text">Skybreak — Official Rules v3.1</span>
             <span className="text-xs text-spire-muted">2,128 lines</span>
           </div>
           <div
@@ -692,7 +692,7 @@ function PCGTab() {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Skyward Ascent — Card Game Rules</title>
+        <title>Skybreak — Card Game Rules</title>
         <style>
           @page { margin: 0.5in; }
           body { font-family: Georgia, serif; max-width: 800px; margin: 0 auto; padding: 20px; color: #222; line-height: 1.45; font-size: 11pt; }
@@ -747,7 +747,7 @@ function PCGTab() {
             borderBottom: "1px solid rgba(34, 211, 238, 0.12)",
           }}
         >
-          <span className="text-sm font-display gold-text">Skyward Ascent — The Card Game Rulebook</span>
+          <span className="text-sm font-display gold-text">Skybreak — The Card Game Rulebook</span>
         </div>
         <div
           ref={fullRulesRef}

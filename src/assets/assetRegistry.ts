@@ -10,13 +10,28 @@ const allAssets = import.meta.glob("../../assets/**/*", {
   eager: true,
   query: "?url",
   import: "default",
-}) as Record<string, string>;
+}) as Record<string, string | { default?: string }>;
+
+/** Convert a glob-relative path to a direct public URL (dev fallback). */
+function toPublicUrl(path: string): string {
+  return path.replace(/^\.\.\/\.\.\//, "/");
+}
+
+/** Extract a string URL from the ?url import, falling back to the public path. */
+function resolveUrl(path: string, val: string | { default?: string } | undefined): string | null {
+  if (typeof val === "string") return val;
+  if (val && typeof val === "object" && typeof val.default === "string") return val.default;
+  // Defensive: if Vite dev fails to provide a ?url string, load from the public path.
+  return toPublicUrl(path);
+}
 
 // Build a normalized lookup map: lowercase filename without extension → URL
 const assetMap: Record<string, string> = {};
 const assetPathMap: Record<string, string> = {};
 
-for (const [path, url] of Object.entries(allAssets)) {
+for (const [path, raw] of Object.entries(allAssets)) {
+  const url = resolveUrl(path, raw);
+  if (!url) continue;
   // Store by full path
   assetPathMap[path] = url;
   // Store by normalized filename (lowercase, no extension, dashes→underscores)
@@ -346,7 +361,7 @@ export function getDiceImage(value: number): string | null {
 // ============================================================
 
 export function getLogoImage(): string | null {
-  return lookup("skyward_ascent_logo");
+  return lookup("skybreak_logo");
 }
 
 export function getCardBackImage(): string | null {

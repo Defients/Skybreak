@@ -3,8 +3,8 @@ import { WEAPONS } from "../data/weapons";
 import { ITEMS } from "../data/items";
 import { RngEngine } from "../utils/random";
 
-const STORAGE_KEY = "skyward_ascent_saves";
-const AUTOSAVE_KEY = "skyward_ascent_autosave";
+const STORAGE_KEY = "skybreak_saves";
+const AUTOSAVE_KEY = "skybreak_autosave";
 const VERSION = "0.1.0";
 
 // ─── Legacy save migration (Astrizda canon pass) ─────────────────────────────

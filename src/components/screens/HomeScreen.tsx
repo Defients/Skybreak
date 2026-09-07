@@ -226,7 +226,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
             <div className="relative inline-block">
               <img
                 src={logoUrl}
-                alt="Skyward Ascent"
+                alt="Skybreak"
                 className="max-w-md w-full h-auto mx-auto animate-logo-float"
                 style={{ filter: "drop-shadow(0 0 32px rgba(34, 211, 238, 0.2))" }}
               />
@@ -242,7 +242,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
               <div className="flex items-center justify-center gap-3">
                 <span className="text-spire-accent text-2xl">⟁</span>
                 <h1 className="text-5xl font-display gold-text tracking-wide cosmo-text-glow-gold">
-                  Skyward Ascent
+                  Skybreak
                 </h1>
                 <span className="text-spire-accent text-2xl">⟁</span>
               </div>
@@ -370,7 +370,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
           <div className="text-center space-y-3">
             <div className="text-lg font-tactical gold-text tracking-wide cosmo-text-glow-gold">🃏 Play With a Real Deck of Cards</div>
             <p className="text-spire-muted text-sm leading-relaxed">
-              No proprietary cards required. <span className="font-semibold">Skyward Ascent</span> is designed around ordinary tabletop components: a standard 54-card deck, two six-sided dice, and the will to climb.<br />Fully playable offline — the digital version is a 1:1 mirror of the tabletop ruleset.
+              No proprietary cards required. <span className="font-semibold">Skybreak</span> is designed around ordinary tabletop components: a standard 54-card deck, two six-sided dice, and the will to climb.<br />Fully playable offline — the digital version is a 1:1 mirror of the tabletop ruleset.
             </p>
             <div className="flex justify-center gap-3">
               <span className="text-[10px] uppercase tracking-wider text-spire-muted bg-spire-bg/40 border border-spire-border/30 rounded-full px-3 py-1">54-Card Deck</span>
@@ -387,7 +387,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
               Read the full rules →
             </button>
             <p className="text-spire-muted/60 text-xs leading-relaxed pt-2 border-t border-spire-border/20">
-              Skyward Ascent is the first playable journey into <span className="text-spire-muted">Astrizda</span> — a larger fantasy universe of ancient structures, fractured powers, and impossible thresholds.
+              Skybreak is the first playable journey into <span className="text-spire-muted">Astrizda</span> — a larger fantasy universe of ancient structures, fractured powers, and impossible thresholds.
             </p>
           </div>
         </div>

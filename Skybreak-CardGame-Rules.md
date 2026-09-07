@@ -1,4 +1,4 @@
-# Skyward Ascent — The Card Game Rulebook
+# Skybreak — The Card Game Rulebook
 
 *A tabletop dungeon crawl you play with a standard deck of cards · An Astrizda Game*
 
@@ -6,7 +6,7 @@
 
 # Welcome
 
-Skyward Ascent is a solitaire dungeon crawler designed to be played with nothing more than a standard 52-card deck, two six-sided dice, and a handful of tokens. You lead a party of three Heroes through a three-tier ascent of **the Astrilith**, fighting monsters, collecting loot, and ultimately facing **Vyridian, the Astril Conductor** at the summit.
+Skybreak is a solitaire dungeon crawler designed to be played with nothing more than a standard 52-card deck, two six-sided dice, and a handful of tokens. You lead a party of three Heroes through a three-tier ascent of **the Astrilith**, fighting monsters, collecting loot, and ultimately facing **Vyridian, the Astril Conductor** at the summit.
 
 The digital version is a 1:1 simulation of these tabletop rules. Everything you can do in the app, you can do at your kitchen table.
 

@@ -1,6 +1,6 @@
-# Skyward Ascent Canon Bible
+# Skybreak Canon Bible
 
-THIS DOCUMENT IS THE CANONICAL SOURCE OF TRUTH FOR SKYWARD ASCENT.
+THIS DOCUMENT IS THE CANONICAL SOURCE OF TRUTH FOR SKYBREAK.
 
 If existing project content conflicts with this document, the Canon Bible takes precedence unless a contradiction would break gameplay. Preserve gameplay whenever possible while updating names, lore, terminology, flavor, art direction, and worldbuilding to align with the canon.
 
@@ -10,7 +10,7 @@ Do not invent replacement lore that contradicts this document. When uncertain, p
 
 ## 0. Core Identity
 
-**Skyward Ascent** is a tabletop card-and-dice dungeon crawl set within **Astrizda**.
+**Skybreak** is a tabletop card-and-dice dungeon crawl set within **Astrizda**.
 
 Players use a standard 54-card deck and two dice to assemble a party of three Heroes and climb the **Astrilith**, an ancient vertical reality-structure whose floors intersect forgotten regions, broken timelines, guarded vaults, and living echoes of Astrizda’s history.
 
@@ -43,7 +43,7 @@ Using only a standard 54-card deck and two dice, assemble three Heroes, battle y
 
 ## Genre Description
 
-Skyward Ascent is a fantasy card-and-dice dungeon crawler playable with ordinary tabletop components.
+Skybreak is a fantasy card-and-dice dungeon crawler playable with ordinary tabletop components.
 
 ## What Not To Say Publicly Yet
 
@@ -74,9 +74,9 @@ Those are deep-lore layers. They should be discovered, not front-loaded.
 
 # 2. Product Positioning
 
-## What Skyward Ascent Is
+## What Skybreak Is
 
-Skyward Ascent is:
+Skybreak is:
 
 - Astrizda’s first public game.
     
@@ -89,9 +89,9 @@ Skyward Ascent is:
 - A low-barrier fantasy adventure using common components.
     
 
-## What Skyward Ascent Is Not
+## What Skybreak Is Not
 
-Skyward Ascent is not:
+Skybreak is not:
 
 - a lore encyclopedia
     
@@ -116,7 +116,7 @@ Not the whole temple.
 
 ## Canon Tier
 
-Skyward Ascent should be treated as:
+Skybreak should be treated as:
 
 > **Playable Canon / Mythic Trial Canon**
 
@@ -324,7 +324,7 @@ Even when the player descends into caves, vaults, or memories, the emotional dir
 
 ## The Iceberg Model
 
-Skyward Ascent should reveal Astrizda in layers.
+Skybreak should reveal Astrizda in layers.
 
 ### Layer 1 — Instantly Clear
 
@@ -397,7 +397,7 @@ Never force it onto first-time players.
 
 These are safe for public-facing game text:
 
-- Skyward Ascent
+- Skybreak
     
 - Astrizda
     
@@ -1878,7 +1878,7 @@ Avoid:
 
 # 19. Endings
 
-Skyward Ascent should eventually support multiple endings.
+Skybreak should eventually support multiple endings.
 
 ## Standard Victory
 
@@ -1914,7 +1914,7 @@ This ending should be rare and heavy.
 
 ## Visual Identity
 
-Skyward Ascent should look like:
+Skybreak should look like:
 
 - high fantasy
     
@@ -2014,7 +2014,7 @@ A viewer should eventually recognize it without text.
 
 ## Soundtrack Direction
 
-Skyward Ascent should sound like:
+Skybreak should sound like:
 
 - ancient choir
     
@@ -2121,7 +2121,7 @@ Unless in optional advanced lore mode.
 
 ## Voice
 
-Skyward Ascent should sound:
+Skybreak should sound:
 
 - mythic
     
@@ -2188,7 +2188,7 @@ That is better than a full biography.
 
 # 25. Expansion Structure
 
-Skyward Ascent can grow through expansions without breaking the base game.
+Skybreak can grow through expansions without breaking the base game.
 
 ## Expansion Ideas
 
@@ -2374,11 +2374,11 @@ in subtle branding areas.
 
 ## Real Deck Section
 
-> No proprietary cards required. Skyward Ascent is designed around ordinary tabletop components: a standard 54-card deck, two six-sided dice, and the will to climb.
+> No proprietary cards required. Skybreak is designed around ordinary tabletop components: a standard 54-card deck, two six-sided dice, and the will to climb.
 
 ## Universe Tease
 
-> Skyward Ascent is the first playable journey into Astrizda, a larger fantasy universe of ancient structures, fractured powers, impossible thresholds, and mythic consequence.
+> Skybreak is the first playable journey into Astrizda, a larger fantasy universe of ancient structures, fractured powers, impossible thresholds, and mythic consequence.
 
 Use the universe tease lower on the page, not in the hero.
 
@@ -2460,7 +2460,7 @@ Purpose:
 
 # 33. Final Canon Summary
 
-Skyward Ascent is the first game of Astrizda.
+Skybreak is the first game of Astrizda.
 
 It is not a lore dump.
 

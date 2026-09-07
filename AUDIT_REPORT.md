@@ -1,8 +1,8 @@
-# SkywardAscent — Forensic Development-State Audit
+# Skybreak — Forensic Development-State Audit
 
 **Date:** 2026-08-22
 **Auditor:** Devin (autonomous)
-**Subject:** `skyward-ascent-simulator` v0.1.0 — React + Zustand + Vite + TypeScript single-page card-game simulator
+**Subject:** `skybreak-simulator` v0.1.0 — React + Zustand + Vite + TypeScript single-page card-game simulator
 **Method:** Static read of every file under `src/`, execution of `vitest` (252 tests, all green) and `tsc -b` (clean), cross-reference of imports/exports to detect orphaned and duplicated logic.
 
 **Verification baseline (FACT):**
@@ -99,7 +99,7 @@ Every claim below is grounded in a file path / function / line. Inferences are l
 | C6 | Tests | `src/tests/` (14 files, 252 tests) | Engine + AI + save-migration coverage |
 
 ### Hidden / Implicit / Background
-- **Autosave** fires on every store mutation (`autosave()` in `gameStore.ts`) → localStorage `skyward_ascent_autosave`.
+- **Autosave** fires on every store mutation (`autosave()` in `gameStore.ts`) → localStorage `skybreak_autosave`.
 - **Event-sequence counter** (`eventLog.ts`) is a **module-level mutable singleton** reset only by `resetEventSequence()` at run start.
 - **ID counter** (`utils/ids.ts`) is also module-level mutable, reset by `resetIdCounter()` at run start.
 - **`_defeatedByMonster`** module-level mutable in `batchSimulationEngine.ts` — shared across batch runs, reset per `runSingleGame`.

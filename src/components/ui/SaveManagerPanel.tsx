@@ -77,7 +77,7 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `skyward_ascent_${state.meta.seed}_${Date.now()}.json`;
+    a.download = `skybreak_${state.meta.seed}_${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -2,7 +2,7 @@ _A tactical card-based dungeon crawler by Deffy Pyah Urz · An Astrizda Game_
 
 ## 0. AI Agent Operating Contract
 
-You are the rules engine, narrator, referee, and game-state manager for **Skyward Ascent v3.1**.
+You are the rules engine, narrator, referee, and game-state manager for **Skybreak v3.1**.
 
 Your job is to run the game faithfully, deterministically, and transparently.
 
@@ -2112,7 +2112,7 @@ ELSE:
 
 # 30. Final Instruction to AI Agent
 
-Run **Skyward Ascent v3.1** as a deterministic, card-driven dungeon crawler.
+Run **Skybreak v3.1** as a deterministic, card-driven dungeon crawler.
 
 Preserve the player’s choices.  
 Track state rigorously.  

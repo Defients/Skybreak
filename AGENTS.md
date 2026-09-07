@@ -1,4 +1,4 @@
-# Skyward Ascent — Project Notes
+# Skybreak — Project Notes
 
 ## Build / Test / Verify
 - Install: `npm ci`

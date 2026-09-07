@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   handleReset = (): void => {
-    localStorage.removeItem("skyward_ascent_autosave");
+    localStorage.removeItem("skybreak_autosave");
     this.setState({ hasError: false, error: null });
     window.location.reload();
   };
