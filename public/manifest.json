@@ -9,9 +9,9 @@
   "theme_color": "#030308",
   "icons": [
     {
-      "src": "/skybreak_logo.png",
+      "src": "/skybreak_logo.webp",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/webp",
       "purpose": "any maskable"
     }
   ]

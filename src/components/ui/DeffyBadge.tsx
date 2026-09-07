@@ -1,4 +1,4 @@
-import deffyLogo from "../../../assets/deffy.png";
+import deffyLogo from "../../../assets/deffy.webp";
 import { useAudio } from "../../audio/useAudio";
 import { useIsMobile } from "../../hooks/useIsMobile";
 

@@ -11,12 +11,12 @@
 ## Stack
 React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + recharts + marked.
 
-## Delivery Metrics (measured at HEAD 80540bc; earlier ce819a2 figures superseded)
+## Delivery Metrics (measured at HEAD eda4f0a; updated Phase 6a)
 - Build duration: ~26s (tsc -b + vite build)
-- Dist total: 221.44 MB
+- Dist total: ~65 MB (down from ~221 MB after WebP conversion)
 - JS: 1,381 KB (gzipped: ~423 KB across all chunks)
 - CSS: 100 KB (gzip: 19 KB)
-- Images: 191.04 MB (PNG/WebP, loaded on demand)
+- Images: 35.94 MB (all WebP, loaded on demand)
 - Audio: 28.89 MB (MP3, loaded on demand)
 - Initial browser transfer (eagerly loaded, gzipped): ~158 KB
   - index.html: 0.85 KB, index JS: 61.20 KB, react-vendor: 45.41 KB,
@@ -25,18 +25,15 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   StrategyLabScreen (127.82 KB gz), WikiScreen (66.42 KB gz), others < 12 KB gz
 - Tests: 752/752 pass (24 files), ~37s total
 
-## Asset Optimization Findings (SA-11, measurement-driven)
-- 30+ monster portrait PNGs at 2.5–3.1 MB each (~90 MB total). Converting
-  to WebP (quality 80) would reduce to ~0.5–0.8 MB each (~60–80% reduction).
-- 2 WebP backgrounds (shopkeeper_room 10.4 MB, spire 8.5 MB) — already WebP
-  but oversized. Re-encoding at quality 70 would roughly halve them.
-- 5 audio MP3s at 2.8–5.6 MB each (~20 MB total). Re-encoding at 128kbps
-  would reduce by ~50%.
-- JS is already code-split with lazy-loaded screens. Initial gzipped
-  transfer (~158 KB) is reasonable. No JS optimization needed.
-- RECOMMENDATION: Batch-convert PNGs to WebP and re-encode audio, but only
-  after visual/audio quality review. This is a ~200 MB → ~50 MB reduction
-  but requires user approval for quality tradeoffs.
+## Asset Optimization (Phase 6a — completed)
+- All 166 PNGs converted to WebP (quality 80) via ffmpeg.
+- Images: 172.57 MB PNG → 35.94 MB WebP (79% reduction).
+- Public logo: 1.4 MB PNG → 170 KB WebP.
+- Audio: kept at original bitrates (music already 192kbps, SFX at low bitrates —
+  re-encoding to 192kbps would increase SFX size with no quality benefit).
+- Total assets: ~220 MB → ~65 MB (70% reduction).
+- Asset registry strips extensions at lookup time, so no lookup-key changes needed.
+- Direct imports (deffy.webp) and public references (index.html, manifest.json) updated.
 
 ## Structural Decomposition Findings (SA-12, deferred)
 - Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),

@@ -76,9 +76,9 @@ const GALLERY_CATEGORIES: { label: string; icon: string; assets: AssetEntry[] }[
   { label: "Misc", icon: "📦", assets: [
     ...collectAssets("skybreak_logo"),
     ...collectAssets("card_back"),
-    ...collectAssets("/door.png"),
+    ...collectAssets("/door."),
     ...collectAssets("gold_coin"),
-    ...collectAssets("shopkeeper.png"),
+    ...collectAssets("shopkeeper."),
     ...collectAssets("/misc/"),
   ].filter((v, i, arr) => arr.findIndex(x => x.path === v.path) === i) },
 ];

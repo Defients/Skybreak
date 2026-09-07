@@ -11,7 +11,7 @@ import { CosmoCursor } from "./CosmoCursor";
 import { Tooltip } from "../ui/Tooltip";
 import { SaveManagerPanel } from "../ui/SaveManagerPanel";
 import { DeffyBadge } from "../ui/DeffyBadge";
-import deffyLogo from "../../../assets/deffy.png";
+import deffyLogo from "../../../assets/deffy.webp";
 
 const MODE_BADGE_COLORS: Record<string, string> = {
   simulation: "text-purple-400",
