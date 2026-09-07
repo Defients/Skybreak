@@ -29,6 +29,8 @@ export type RoomType =
 
 export interface RoomNode {
   index: number;
+  /** Stable content identifier (e.g., "t1_00_merchant"), independent of array index. */
+  roomId?: string;
   type: RoomType;
   symbol: string;
   tier: 1 | 2 | 3;

@@ -5,7 +5,9 @@ import { useAudio } from "../../audio/useAudio";
 import {
   getStarsImage,
   getWeaponImage,
+  getWeaponImageById,
   getItemImage,
+  getItemImageById,
   getEnchantIcon,
   getGoldCoinImage,
   getClassIcon,
@@ -804,7 +806,7 @@ function CostRow({ costs, goldCoinUrl }: { costs: { t1: number; t2: number; t3: 
 }
 
 function WeaponCard({ weapon, goldCoinUrl }: { weapon: typeof WEAPONS[0]; goldCoinUrl: string | null }) {
-  const img = getWeaponImage(weapon.name);
+  const img = getWeaponImageById(weapon.id) ?? getWeaponImage(weapon.name);
   const rs = RARITY_STYLES[weapon.rarity];
   const classColor = CLASS_TEXT_COLORS[weapon.className as HeroClassName] ?? "text-spire-white";
   const classIcon = getClassIcon(weapon.className);
@@ -885,7 +887,7 @@ function EnchantCard({ name, data, goldCoinUrl }: { name: string; data: typeof E
 }
 
 function ItemCard({ name, data, goldCoinUrl }: { name: string; data: typeof ITEMS[keyof typeof ITEMS]; goldCoinUrl: string | null }) {
-  const img = getItemImage(name);
+  const img = getItemImageById(data.itemId) ?? getItemImage(name);
   const valuable = VALUABLE_ITEM_STYLES[name];
   return (
     <div className={`glass-card rounded-xl p-3 space-y-2 border ${valuable?.border ?? "border-spire-border/30"} hover:border-spire-accent/30 transition-all duration-200`}>

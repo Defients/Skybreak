@@ -63,6 +63,8 @@ export interface RollTableEntry {
 
 export interface ClassData {
   name: HeroClassName;
+  /** Stable content identifier, independent of display name. */
+  classId: string;
   baseHp: number;
   startingGold: number;
   startingItem: string;

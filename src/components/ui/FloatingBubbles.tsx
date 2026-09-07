@@ -48,7 +48,7 @@ const WEAPON_FILENAME_MAP: Record<string, string> = {
   "Longshot": "longshot",
   "Wild Bow": "wildbow",
   "Thunderstrike": "thunderstrike",
-  "Beastmaster's Pride": "beastmastersprid",
+  "Beastmaster's Pride": "beastmasterspride",
   "Voidwatcher": "dualaxis",
   "Twin Claws": "twinclaws",
   "Tower Shield": "towershield",

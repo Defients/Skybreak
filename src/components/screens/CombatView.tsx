@@ -23,6 +23,7 @@ import { HeroIcon } from "../ui/HeroIcon";
 import { PetIcon } from "../ui/PetIcon";
 import { formatLogSummary, getEventTypeStyle } from "../../utils/logFormatter";
 import { formatAbilityText } from "../../utils/formatAbilityText";
+import { ExplainTurnIcon } from "../combat/ExplainTurn";
 import { ITEMS } from "../../data/items";
 import { suitSymbol, isRedSuit, getApcColors, APC_COLORS } from "../../types/cards";
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
@@ -1267,6 +1268,7 @@ export function CombatView({ onBack }: Props) {
                     <span className="text-spire-white/90">{formatLogSummary(event.summary, state, event.type)}</span>
                   </div>
                   {(event.type === "ABILITY_TRIGGERED" || event.summary.includes("Action:")) && <CombatLogTooltip event={event} state={state} />}
+                  <ExplainTurnIcon event={event} />
                 </div>
               );
             })

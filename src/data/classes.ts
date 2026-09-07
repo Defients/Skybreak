@@ -3,6 +3,7 @@ import type { ClassData, HeroClassName } from "../types/heroes";
 export const CLASS_DATA: Record<HeroClassName, ClassData> = {
   Bladedancer: {
     name: "Bladedancer",
+    classId: "bladedancer",
     baseHp: 16,
     startingGold: 40,
     startingItem: "Minor Health Potion",
@@ -34,6 +35,7 @@ export const CLASS_DATA: Record<HeroClassName, ClassData> = {
 
   Manipulator: {
     name: "Manipulator",
+    classId: "manipulator",
     baseHp: 17,
     startingGold: 40,
     startingItem: "Mystic Rune",
@@ -65,6 +67,7 @@ export const CLASS_DATA: Record<HeroClassName, ClassData> = {
 
   Tracker: {
     name: "Tracker",
+    classId: "tracker",
     baseHp: 16,
     startingGold: 40,
     startingItem: "Lucky Charm",
@@ -96,6 +99,7 @@ export const CLASS_DATA: Record<HeroClassName, ClassData> = {
 
   Guardian: {
     name: "Guardian",
+    classId: "guardian",
     baseHp: 18,
     startingGold: 40,
     startingItem: "Shield Charm",

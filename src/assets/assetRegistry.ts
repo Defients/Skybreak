@@ -172,7 +172,7 @@ const MONSTER_MAP: Record<string, string> = {
   "Shadowy Assassin": "veilblade_stalker",
   Banshee: "moonbound_oracle",
   "Lunar Witch": "moonbound_oracle",
-  "Arcane Elemental": "resonane_elemental",
+  "Arcane Elemental": "resonant_elemental",
   Phoenix: "emberglass_phoenix",
   Gargoyle: "vault_gargoyle",
   "Cursed Knight": "oathbroken_ascender",
@@ -257,7 +257,7 @@ const WEAPON_MAP: Record<string, string> = {
   "Longshot": "longshot",
   "Wild Bow": "wildbow",
   "Thunderstrike": "thunderstrike",
-  "Beastmaster's Pride": "beastmastersprid",
+  "Beastmaster's Pride": "beastmasterspride",
   "Voidwatcher": "dualaxis",
   "Twin Claws": "twinclaws",
   "Tower Shield": "towershield",
@@ -298,6 +298,30 @@ const ITEM_MAP: Record<string, string> = {
 export function getItemImage(name: string): string | null {
   const key = ITEM_MAP[name] ?? normalizeName(name);
   return lookup(key);
+}
+
+/** Look up item image by stable content ID (itemId). Falls back to name-based lookup. */
+export function getItemImageById(itemId: string): string | null {
+  // The ITEM_MAP values often match itemId values (e.g., "minor_potion").
+  // Try direct lookup first, then normalize.
+  const key = ITEM_MAP[itemId] ?? itemId;
+  return lookup(key);
+}
+
+/** Look up weapon image by stable content ID (weaponId). Falls back to name-based lookup. */
+export function getWeaponImageById(weaponId: string): string | null {
+  // Weapon IDs like "bd_common_1" don't directly map to asset filenames,
+  // so we normalize. The WEAPON_MAP is still name-based for now.
+  const key = normalizeName(weaponId);
+  return lookup(key) ?? lookup(weaponId);
+}
+
+/** Look up monster image by stable numeric ID. */
+export function getMonsterImageById(monsterId: number, name?: string): string | null {
+  // Monsters are keyed by name in MONSTER_MAP; the numeric ID is stable
+  // but not directly mapped to filenames. Fall back to name-based lookup.
+  if (name) return getMonsterImage(name);
+  return null;
 }
 
 // ============================================================

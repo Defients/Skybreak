@@ -197,6 +197,23 @@ export function getItemCost(name: ItemType, tier: 1 | 2 | 3): number {
   return tier === 1 ? item.costs.t1 : tier === 2 ? item.costs.t2 : item.costs.t3;
 }
 
+// ─── Stable content-ID index ───────────────────────────────────
+// Secondary index keyed by the stable `itemId` field, so lookups can
+// be ID-based without breaking the existing `ITEMS[name]` callers.
+export const ITEMS_BY_ID: Record<string, ItemData> = Object.fromEntries(
+  Object.values(ITEMS).map((item) => [item.itemId, item])
+);
+
+/** Look up item data by stable content ID. Returns undefined if not found. */
+export function getItemData(itemId: string): ItemData | undefined {
+  return ITEMS_BY_ID[itemId];
+}
+
+/** Look up item data by display name (legacy path). Returns undefined if not found. */
+export function getItemDataByName(name: string): ItemData | undefined {
+  return ITEMS[name as ItemType];
+}
+
 export function getHealingCost(name: string, tier: 1 | 2 | 3): number {
   const service = HEALING_SERVICES[name];
   if (!service) return 0;

@@ -71,8 +71,10 @@ export function createRoomsForTier(tier: 1 | 2 | 3): RoomNode[] {
   if (!defs) return [];
 
   return defs.map((def, index) => {
+    const roomId = `t${tier}_${String(index).padStart(2, "0")}_${def.type}`;
     const room: RoomNode = {
       index,
+      roomId,
       type: def.type,
       symbol: def.symbol,
       tier,
@@ -82,6 +84,7 @@ export function createRoomsForTier(tier: 1 | 2 | 3): RoomNode[] {
     if (def.splitOptions) {
       room.splitOptions = def.splitOptions.map((opt, i) => ({
         index: i,
+        roomId: `${roomId}_split_${i}_${opt.type}`,
         type: opt.type,
         symbol: opt.symbol,
         tier,

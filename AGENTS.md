@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **743 tests / 24 files**, jsdom, ~39s)
+- Test: `npm test` (vitest run, **752 tests / 24 files**, jsdom, ~37s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -23,7 +23,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
     data: 9.22 KB, game-engine: 22.00 KB, CSS: 19.01 KB
 - Lazy-loaded chunks: CombatView (12.65 KB gz), MerchantView (11.88 KB gz),
   StrategyLabScreen (127.82 KB gz), WikiScreen (66.42 KB gz), others < 12 KB gz
-- Tests: 728/728 pass (24 files), ~60s total (715 original + 13 Megaplan Phase 0 fixtures)
+- Tests: 752/752 pass (24 files), ~37s total
 
 ## Asset Optimization Findings (SA-11, measurement-driven)
 - 30+ monster portrait PNGs at 2.5–3.1 MB each (~90 MB total). Converting
@@ -41,7 +41,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 ## Structural Decomposition Findings (SA-12, deferred)
 - Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),
   CombatView.tsx (71 KB), heroAbilityEngine.ts (66 KB), StrategyLabScreen.tsx (62 KB).
-- 728 tests now protect behavior across all paths, making decomposition safe.
+- 752 tests now protect behavior across all paths, making decomposition safe.
 - RECOMMENDATION: Split per-class hero/monster ability resolvers into
   separate files, extract MerchantView/CombatView sub-components. Deferred
   to user direction — no behavior change, pure maintainability improvement.
@@ -109,3 +109,34 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - Archetypes: The Unbroken (victory, no deaths), The Sacrificed (victory + deaths), The Resilient (revivals), The Flawless (perfect combats), The Frugal (low spending), The Defiant (defeat at final boss), The Fallen (defeat before boss), The Resourceful (many items used).
 - Purely cosmetic — no state mutation, no balance effects, no hidden ending rules.
 - Displayed in `RunReport.tsx` between the header and the score breakdown.
+
+## Content IDs & Explain This Turn (Phase 5)
+- **Stable content identifiers** (additive, backward-compatible):
+  - `ClassData.classId` added to all four classes (`bladedancer`, `manipulator`, `tracker`, `guardian`).
+  - `RoomNode.roomId` added to all generated rooms and split options (format: `t{tier}_{index}_{type}`).
+  - `ITEMS_BY_ID` index and `getItemData(itemId)` helper added alongside the existing display-name-keyed `ITEMS` map.
+  - `ItemInstance.itemId` remains optional to preserve old save compatibility.
+- **ID-based asset lookup helpers** in `src/assets/assetRegistry.ts`:
+  - `getMonsterImageById(id)`, `getWeaponImageById(id)`, `getItemImageById(itemId)`.
+  - Legacy name-based helpers (`getMonsterImage`, `getWeaponImage`, `getItemImage`) retained.
+  - `WikiScreen.tsx` now prefers ID-based lookup with name fallback.
+- **Asset filename corrections**:
+  - `resonane_elemental-portrait.png` → `resonant_elemental-portrait.png`
+  - `beastmastersprid.png` → `beastmasterspride.png`
+  - Registry and `FloatingBubbles.tsx` references updated.
+- **Explain This Turn** (`src/components/combat/ExplainTurn.tsx`):
+  - Clickable ℹ icon next to each combat log event in `CombatView.tsx`.
+  - Surfaces the `DamageBreakdown` already stored in `DAMAGE_APPLIED.details.breakdown` (base, weapon/enchantment/token/environment/match bonuses, shield/armor/defense reductions, phase-through, notes, final damage).
+  - For non-damage events with structured `details`, shows key/value pairs.
+  - Derives explanations from actual `GameEvent` data — no invented narration.
+
+## Future Work (requires user input or separate scope)
+- **Physical Table Bridge**: Real cards/dice while the app tracks party and explains outcomes.
+  Requires an explicit physical-input protocol — not merely forcing RNG values.
+  Do not implement without a design pass on the input/verification flow.
+- **Asset optimization**: ~90 MB of monster portrait PNGs + ~20 MB audio.
+  WebP/128kbps re-encoding would roughly halve total size, but requires
+  visual/audio quality review before batch conversion.
+- **Full content-ID migration**: Re-keying `ITEMS` by `itemId`, making
+  `ItemInstance.itemId` required, replacing display-name engine/UI lookups.
+  Requires save migration and broad compatibility testing. Deferred.
