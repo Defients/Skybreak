@@ -30,6 +30,10 @@ export interface StrategyLabConfig {
   partyChoices?: PartySetupChoice[];
   baseSeed: string;
   axes: StrategyLabAxes;
+  /** When true, all combos replay the same scenario per run index
+   *  (same seed) so differences are attributable to strategy, not RNG.
+   *  When false (default), each combo gets its own derived seed. */
+  sharedCohort?: boolean;
 }
 
 export interface StrategyCombo {

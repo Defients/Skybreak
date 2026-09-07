@@ -23,8 +23,6 @@ import {
 } from "./rulesEngine";
 import {
   startCombat,
-  cleanupCombat,
-  grantRewards,
 } from "./combatEngine";
 import { runCombatStep, completeHeroTurn } from "./combatRunner";
 import {
@@ -34,9 +32,10 @@ import {
   upgradeWeapon,
   leaveMerchant,
 } from "./merchantEngine";
-import { resolveRestChoice, calculateScore, checkVictory, checkDefeat } from "./progressionEngine";
+import { resolveRestChoice, calculateScore, finalizeRunStats, resolveCombatRoom } from "./progressionEngine";
 import { emitEvent, resetEventSequence } from "./eventLog";
 import { ALL_CLASSES, getSpecialization } from "../data/classes";
+import { rollWelcomeBonus, applyWelcomeBonusResults } from "./gameState";
 
 const ALL_SUITS: Suit[] = ["clubs", "diamonds", "hearts", "spades"];
 
@@ -287,83 +286,35 @@ async function processRoom(
         isElite: currentRoom.type === "elite_combat",
       });
       const afterCombat = await autoPlayCombat(combatState, rng, config);
-      if (afterCombat.combat?.combatResult === "victory") {
-        newState = grantRewards(afterCombat);
-        newState = cleanupCombat(newState);
-      } else if (afterCombat.combat?.combatResult === "defeat") {
-        if (checkDefeat(afterCombat)) {
-          _defeatedByMonster = afterCombat.combat?.monster.name;
-          newState = { ...afterCombat, phase: "defeat" };
-          newState = emitEvent(newState, "DEFEAT", "The party has been wiped out.", {
-            details: { reason: "party_wipe" },
-          });
-          return newState;
-        }
-        newState = cleanupCombat(afterCombat);
-      } else {
-        newState = cleanupCombat(afterCombat);
+      const result = resolveCombatRoom(afterCombat);
+      if (result.defeatedByMonster) _defeatedByMonster = result.defeatedByMonster;
+      if (result.terminal === "victory" || result.terminal === "defeat") {
+        return result.state;
       }
-      newState = markRoomResolved(newState);
-      newState = advanceRoom(newState);
+      newState = result.state;
       break;
     }
 
     case "mini_boss": {
       const combatState = startCombat(newState, rng, { isMiniBoss: true });
       const afterCombat = await autoPlayCombat(combatState, rng, config);
-      if (afterCombat.combat?.combatResult === "victory") {
-        newState = grantRewards(afterCombat);
-        newState = cleanupCombat(newState);
-      } else if (afterCombat.combat?.combatResult === "defeat") {
-        if (checkDefeat(afterCombat)) {
-          _defeatedByMonster = afterCombat.combat?.monster.name;
-          newState = { ...afterCombat, phase: "defeat" };
-          newState = emitEvent(newState, "DEFEAT", "The party has been wiped out.", {
-            details: { reason: "party_wipe" },
-          });
-          return newState;
-        }
-        newState = cleanupCombat(afterCombat);
-      } else {
-        newState = cleanupCombat(afterCombat);
+      const result = resolveCombatRoom(afterCombat);
+      if (result.defeatedByMonster) _defeatedByMonster = result.defeatedByMonster;
+      if (result.terminal === "victory" || result.terminal === "defeat") {
+        return result.state;
       }
-      newState = markRoomResolved(newState);
-      newState = advanceRoom(newState);
+      newState = result.state;
       break;
     }
 
     case "final_boss": {
       const combatState = startCombat(newState, rng, { isFinalBoss: true });
       const afterCombat = await autoPlayCombat(combatState, rng, config);
-      if (afterCombat.combat?.combatResult === "victory") {
-        // Check victory BEFORE cleanupCombat — checkVictory requires combat to still be set
-        const isVictory = checkVictory(afterCombat);
-        newState = grantRewards(afterCombat);
-        newState = cleanupCombat(newState);
-        if (isVictory) {
-          const score = calculateScore(newState);
-          newState = { ...newState, phase: "victory", score };
-          newState = emitEvent(newState, "VICTORY", `Judgment survived! The ascent is complete! Score: ${score.finalScore}`, {
-            details: { score: score.finalScore, title: score.title },
-          });
-          return newState;
-        } else {
-          // Boss dead but no living heroes — defeat
-          _defeatedByMonster = afterCombat.combat?.monster.name;
-          newState = { ...newState, phase: "defeat" };
-          newState = emitEvent(newState, "DEFEAT", "Boss defeated but no heroes survived.", {
-            details: { reason: "no_survivors" },
-          });
-          return newState;
-        }
-      } else {
-        _defeatedByMonster = afterCombat.combat?.monster.name;
-        newState = { ...afterCombat, phase: "defeat" };
-        newState = emitEvent(newState, "DEFEAT", "The party has been wiped out.", {
-          details: { reason: "party_wipe" },
-        });
-        return newState;
-      }
+      const result = resolveCombatRoom(afterCombat);
+      if (result.defeatedByMonster) _defeatedByMonster = result.defeatedByMonster;
+      // final_boss always returns a terminal state from resolveCombatRoom
+      // (victory if boss dead + survivors, defeat otherwise).
+      return result.state;
     }
 
     case "merchant": {
@@ -416,6 +367,15 @@ export async function runSingleGame(
 
   let state = initializeGame(simConfig, partyChoices);
 
+  // Resolve the welcome bonus for easy/normal difficulty, mirroring the
+  // playable path. Without this, batch runs on easy/normal start without
+  // bonus weapons/gold, diverging from playable runs.
+  if (state.welcomeBonusPending) {
+    const wbResults = rollWelcomeBonus(state, rng);
+    state = applyWelcomeBonusResults(state, wbResults, rng);
+    state = { ...state, welcomeBonusPending: false };
+  }
+
   const maxRooms = 40;
   let roomCount = 0;
   let lastRoomIndex = state.spire.roomIndex;
@@ -451,6 +411,11 @@ export async function runSingleGame(
       details: { reason: "timeout" },
     });
   }
+
+  // Finalize run stats (MVP, deadliest monster) — shared with the playable
+  // path which calls finalizeRunStats in doResolveRoom. Without this, batch
+  // results have undefined mvpHeroId and deadliestMonster.
+  state = finalizeRunStats(state);
 
   const score = calculateScore(state);
   const livingHeroes = getLivingHeroes(state);
@@ -530,7 +495,8 @@ function aggregateResults(runs: RunResult[]): AggregateStats {
 
 export async function runBatch(
   config: BatchConfig,
-  onProgress?: (completed: number, total: number, currentResult?: RunResult) => void
+  onProgress?: (completed: number, total: number, currentResult?: RunResult) => void,
+  isCancelled?: () => boolean
 ): Promise<BatchResult> {
   const startedAt = new Date().toISOString();
   const runs: RunResult[] = [];
@@ -539,6 +505,9 @@ export async function runBatch(
   await nextPaint();
 
   for (let i = 0; i < config.runs; i++) {
+    // Check cancellation before starting each run
+    if (isCancelled?.()) break;
+
     // Pre-run callback so UI can show "Running run N..."
     if (onProgress) {
       onProgress(i, config.runs, runs[i - 1]);

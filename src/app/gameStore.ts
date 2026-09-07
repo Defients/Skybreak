@@ -20,8 +20,6 @@ import {
   startCombat,
   flipPeonCards,
   detectMatches,
-  cleanupCombat,
-  grantRewards,
 } from "../engine/combatEngine";
 import { executeMonsterTurn } from "../engine/monsterAbilityEngine";
 import { executeHeroAction, useItem } from "../engine/heroAbilityEngine";
@@ -38,7 +36,7 @@ import {
   autoBuy,
   leaveMerchant,
 } from "../engine/merchantEngine";
-import { resolveRestChoice, calculateScore, checkVictory, checkDefeat, finalizeRunStats } from "../engine/progressionEngine";
+import { resolveRestChoice, resolveCombatRoom } from "../engine/progressionEngine";
 import { validateState } from "../engine/validationEngine";
 import { autosave, saveGame } from "../engine/saveLoad";
 import { emitEvent, resetEventSequence } from "../engine/eventLog";
@@ -482,47 +480,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doResolveRoom: () => {
     const { state, rng } = get();
     if (!state) return;
-    let newState = { ...state };
-    // Capture the final-boss victory outcome BEFORE cleanupCombat clears the
-    // combat object. checkVictory requires state.combat to still be present
-    // (it reads combat.isFinalBoss / combat.monster.alive), so it must run
-    // before cleanup. This mirrors the batch path (batchSimulationEngine final_boss).
-    let finalBossVictory = false;
-
-    if (state.phase === "combat" && state.combat?.combatResult === "victory") {
-      newState = grantRewards(newState);
-      finalBossVictory = checkVictory(newState);
-      newState = cleanupCombat(newState);
-      newState = markRoomResolved(newState);
-      newState = advanceRoom(newState);
-    } else if (state.phase === "combat" && state.combat?.combatResult === "defeat") {
-      if (checkDefeat(newState)) {
-        newState = finalizeRunStats(newState);
-        newState = { ...newState, phase: "defeat" };
-        newState = emitEvent(newState, "DEFEAT", "The party has been wiped out. The Astrilith claims another group of adventurers.", {
-          details: { reason: "party_wipe" },
-        });
-      } else {
-        newState = cleanupCombat(newState);
-        newState = markRoomResolved(newState);
-        newState = advanceRoom(newState);
-      }
-    } else if (state.phase === "combat" && state.combat?.combatResult === "retreat") {
-      newState = cleanupCombat(newState);
-      newState = markRoomResolved(newState);
-      newState = advanceRoom(newState);
-    }
-
-    if (finalBossVictory) {
-      newState = finalizeRunStats(newState);
-      const score = calculateScore(newState);
-      newState = { ...newState, phase: "victory", score };
-      newState = emitEvent(newState, "VICTORY", `Judgment survived! The ascent is complete! Final Score: ${score.finalScore}. Title: ${score.title}`, {
-        details: { score: score.finalScore, title: score.title },
-      });
-    }
-
-    const finalState = withRng(newState, rng);
+    // Delegate to the shared terminal resolver so the playable and batch
+    // paths have identical combat room resolution semantics.
+    const result = resolveCombatRoom(state);
+    const finalState = withRng(result.state, rng);
     set({ state: finalState });
     autosave(finalState);
   },

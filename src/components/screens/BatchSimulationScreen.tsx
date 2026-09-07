@@ -394,6 +394,7 @@ export function BatchSimulationScreen({ onBack }: Props) {
     resetBatch,
     doDownloadJSON,
     doDownloadCSV,
+    cancelBatch,
   } = useBatchStore();
 
   const { playSfx } = useAudio();
@@ -433,6 +434,7 @@ export function BatchSimulationScreen({ onBack }: Props) {
         currentRunLog={currentRunLog}
         currentRunSummary={currentRunSummary}
         nameMap={runNameMap}
+        onCancel={cancelBatch}
       />
     );
   }
@@ -1041,11 +1043,13 @@ function RunningView({
   currentRunLog,
   currentRunSummary,
   nameMap,
+  onCancel,
 }: {
   progress: { completed: number; total: number };
   currentRunLog: GameEvent[];
   currentRunSummary: string;
   nameMap: Map<string, NameEntry>;
+  onCancel?: () => void;
 }) {
   const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
@@ -1067,7 +1071,17 @@ function RunningView({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="text-xs text-spire-muted">{currentRunSummary}</div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-xs text-spire-muted">{currentRunSummary}</div>
+          {onCancel && (
+            <button
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-red-400/40 text-red-300 hover:bg-red-500/10 transition-all duration-200"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="glass-card p-5">

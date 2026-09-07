@@ -199,7 +199,8 @@ function computeVariance(runs: RunResult[]): { variance: number; stdDev: number 
 
 export async function runStrategyLab(
   config: StrategyLabConfig,
-  onProgress?: (progress: LabProgress, currentResult?: RunResult) => void
+  onProgress?: (progress: LabProgress, currentResult?: RunResult) => void,
+  isCancelled?: () => boolean
 ): Promise<StrategyLabResult> {
   const startedAt = new Date().toISOString();
   const combos = generateCrossProduct(config.axes);
@@ -208,12 +209,15 @@ export async function runStrategyLab(
   await nextPaint();
 
   for (let ci = 0; ci < combos.length; ci++) {
+    if (isCancelled?.()) break;
+
     const combo = combos[ci];
     const comboLabel = comboToLabel(combo);
     const batchConfig = comboToBatchConfig(combo, config);
     const runs: RunResult[] = [];
 
     for (let ri = 0; ri < config.runsPerCombo; ri++) {
+      if (isCancelled?.()) break;
       if (onProgress) {
         onProgress({
           currentCombo: ci,
@@ -225,7 +229,9 @@ export async function runStrategyLab(
       }
       await nextPaint();
 
-      const seed = `${config.baseSeed}_LAB_${ci}_R${ri}`;
+      const seed = config.sharedCohort
+        ? `${config.baseSeed}_COHORT_R${ri}`
+        : `${config.baseSeed}_LAB_${ci}_R${ri}`;
       const result = await runSingleGame(ri, seed, batchConfig);
       runs.push(result);
 

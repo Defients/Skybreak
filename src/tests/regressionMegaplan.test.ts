@@ -28,9 +28,11 @@ import {
   aiPickSplitChoice,
   aiMerchantActions,
 } from "../engine/aiController";
-import { randomParty } from "../engine/batchSimulationEngine";
+import { randomParty, runSingleGame } from "../engine/batchSimulationEngine";
 import { useGameStore } from "../app/gameStore";
+import { useBatchStore } from "../app/batchStore";
 import type { GameState } from "../types/gameState";
+import type { BatchConfig } from "../types/batch";
 
 /**
  * Megaplan Phase 0 — Reproduced defect regression fixtures.
@@ -326,5 +328,101 @@ describe("Megaplan Phase 0 — Reproduced defect fixtures", () => {
     // CORRECT behavior: with 0 gold, no purchasable action should be proposed.
     // Currently a Minor Potion is proposed for every hurt hero with no gold check.
     expect(purchases.filter((p) => p.type !== "skip").length).toBe(0);
+  });
+});
+
+// ============================================================
+// Phase 2 — Run lifecycle, evidence, and Lab fixtures
+// (First Moves #7 and #8)
+// ============================================================
+
+describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
+  const sampleParty: PartySetupChoice[] = [
+    { className: "Bladedancer", suit: "spades", position: 1 },
+    { className: "Manipulator", suit: "hearts", position: 2 },
+    { className: "Tracker", suit: "clubs", position: 3 },
+  ];
+
+  beforeEach(() => {
+    localStorage.clear();
+    useGameStore.setState({ state: null, rng: null, validationWarnings: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useGameStore.setState({ state: null, rng: null, validationWarnings: [] });
+    localStorage.clear();
+  });
+
+  function makeBatchConfig(overrides: Partial<BatchConfig> = {}): BatchConfig {
+    return {
+      runs: 1,
+      difficulty: "normal",
+      partyMode: "fixed",
+      partyChoices: sampleParty,
+      combatStrategy: "balanced",
+      merchantStrategy: "balanced",
+      restStrategy: "safe",
+      splitStrategy: "safe",
+      itemUsageStrategy: "conservative",
+      weaponUpgradeStrategy: "balanced",
+      baseSeed: "mp2-test",
+      ...overrides,
+    } as BatchConfig;
+  }
+
+  // ─── FM#7: Welcome bonus divergence ────────────────────────────
+
+  it("FM#7: batch runSingleGame on easy difficulty resolves the welcome bonus (heroes get bonus weapons/gold)", async () => {
+    // CORRECT behavior: batch runs on easy/normal should resolve the welcome
+    // bonus just like the playable path. Currently runSingleGame never calls
+    // applyWelcomeBonusResults, so easy/normal batch runs start with only the
+    // default common weapon and no bonus gold — diverging from playable runs.
+    const config = makeBatchConfig({ difficulty: "easy" });
+    const result = await runSingleGame(0, "mp2-wb-easy", config);
+    // A welcome bonus resolution should produce at least one DICE_ROLLED event
+    // with "Welcome Bonus" in the description, and the party should have
+    // weapons beyond just the starting common weapon (or bonus gold).
+    const hasWelcomeBonusEvent = result.combatLog.some(
+      (e) => e.type === "DICE_ROLLED" && String(e.summary).includes("Welcome Bonus")
+    );
+    expect(hasWelcomeBonusEvent).toBe(true);
+  });
+
+  // ─── FM#7: Terminal resolution — finalizeRunStats in batch ─────
+
+  it("FM#7: batch runSingleGame finalizes run stats (MVP and deadliest monster populated)", async () => {
+    // CORRECT behavior: the batch path should call finalizeRunStats so that
+    // mvpHeroId and deadliestMonster are populated in the result stats, just
+    // like the playable path does in doResolveRoom. Currently the batch path
+    // never calls finalizeRunStats.
+    const config = makeBatchConfig();
+    const result = await runSingleGame(0, "mp2-finalize", config);
+    // After a full run, at least one of these should be populated (MVP is set
+    // if any hero dealt damage; deadliestMonster is set if any monster dealt
+    // damage). Both are undefined when finalizeRunStats is never called.
+    const hasMvpOrDeadliest = result.stats.mvpHeroId !== undefined || result.stats.deadliestMonster !== undefined;
+    expect(hasMvpOrDeadliest).toBe(true);
+  });
+
+  // ─── FM#8: Batch cancellation ──────────────────────────────────
+
+  it("FM#8: runBatch stops early when cancelRequested is true", async () => {
+    // CORRECT behavior: a batch run should be cancellable. Currently
+    // runBatch never reads cancelRequested and runs all runs to completion.
+    // We test by setting a large number of runs and cancelling immediately.
+    const store = useBatchStore.getState();
+    const config = makeBatchConfig({ runs: 100, baseSeed: "mp2-cancel" });
+    // Start the batch, then cancel after the first run completes.
+    const startPromise = store.startBatch();
+    // Give it a moment to start, then cancel.
+    await new Promise((r) => setTimeout(r, 100));
+    store.cancelBatch();
+    await startPromise;
+    const result = useBatchStore.getState().result;
+    // CORRECT: the batch should have been interrupted, so it should NOT have
+    // completed all 100 runs. Currently it runs all 100.
+    expect(result).not.toBeNull();
+    expect(result!.runs.length).toBeLessThan(100);
   });
 });

@@ -286,7 +286,8 @@ export function CombatView({ onBack }: Props) {
     const s = storeState.state;
     const rng = storeState.rng;
     if (!s?.combat || !rng) return;
-    const decision = aiPlayHeroTurn(s, rng, heroId, "balanced");
+    const combatStrategy = s.settings.combatStrategy ?? "balanced";
+    const decision = aiPlayHeroTurn(s, rng, heroId, combatStrategy);
     if (decision.action === "use_item") {
       doUseItem(heroId, decision.itemName!, decision.targetId ?? heroId);
     } else if (decision.action === "end_turn") {

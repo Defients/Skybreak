@@ -33,6 +33,9 @@ export function createDefaultConfig(
     allowManualOverride: true,
     allowIllegalOverride: false,
     autoResolveTrivialChoices: false,
+    combatStrategy: "balanced",
+    itemUsageStrategy: "conservative",
+    merchantStrategy: "balanced",
     ...overrides,
   };
 }
@@ -237,6 +240,21 @@ export interface WelcomeBonusRollResult {
   die1: number;
   die2: number;
   chosenWeaponId?: string;
+}
+
+/**
+ * Roll the welcome bonus dice for each hero using the seeded RngEngine.
+ * This is the shared entry point for the welcome bonus: the playable path
+ * uses it via the interactive UI (which supplies its own dice values), while
+ * the batch/simulation path calls this directly to auto-roll the bonus.
+ * Returns the roll results that can be passed to applyWelcomeBonusResults.
+ */
+export function rollWelcomeBonus(state: GameState, rng: RngEngine): WelcomeBonusRollResult[] {
+  return state.party.heroes.map((hero) => {
+    const die1 = rng.rollD6(`wb_die1_${hero.name}`).total;
+    const die2 = rng.rollD6(`wb_die2_${hero.name}`).total;
+    return { heroId: hero.heroId, die1, die2 };
+  });
 }
 
 export function applyWelcomeBonusResults(

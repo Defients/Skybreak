@@ -67,22 +67,26 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
       cancelRequested: false,
     });
 
-    const batchResult = await runBatch(config, (completed, total, currentResult) => {
-      if (currentResult) {
-        set({
-          progress: { completed, total },
-          currentRunLog: currentResult.combatLog.slice(-15),
-          currentRunSummary: currentResult.runSummary,
-        });
-      } else {
-        // Pre-run callback: show "Running run N..."
-        set({
-          progress: { completed, total },
-          currentRunSummary: `Running run ${completed + 1} of ${total}...`,
-          currentRunLog: [],
-        });
-      }
-    });
+    const batchResult = await runBatch(
+      config,
+      (completed, total, currentResult) => {
+        if (currentResult) {
+          set({
+            progress: { completed, total },
+            currentRunLog: currentResult.combatLog.slice(-15),
+            currentRunSummary: currentResult.runSummary,
+          });
+        } else {
+          // Pre-run callback: show "Running run N..."
+          set({
+            progress: { completed, total },
+            currentRunSummary: `Running run ${completed + 1} of ${total}...`,
+            currentRunLog: [],
+          });
+        }
+      },
+      () => get().cancelRequested
+    );
 
     set({
       isRunning: false,

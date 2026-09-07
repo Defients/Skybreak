@@ -20,10 +20,12 @@ interface StrategyLabStore {
   progress: LabProgress | null;
   currentRunLog: GameEvent[];
   currentRunSummary: string;
+  cancelRequested: boolean;
 
   setConfig: (partial: Partial<StrategyLabConfig>) => void;
   setAxes: (partial: Partial<StrategyLabConfig["axes"]>) => void;
   startLab: () => Promise<void>;
+  cancelLab: () => void;
   resetLab: () => void;
   doDownloadJSON: () => void;
   doDownloadCSV: () => void;
@@ -36,6 +38,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
   progress: null,
   currentRunLog: [],
   currentRunSummary: "",
+  cancelRequested: false,
 
   setConfig: (partial) => {
     set((s) => ({ config: { ...s.config, ...partial } }));
@@ -53,23 +56,28 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
       progress: null,
       currentRunLog: [],
       currentRunSummary: "",
+      cancelRequested: false,
     });
 
-    const labResult = await runStrategyLab(config, (prog, currentResult) => {
-      if (currentResult) {
-        set({
-          progress: prog,
-          currentRunLog: currentResult.combatLog.slice(-15),
-          currentRunSummary: currentResult.runSummary,
-        });
-      } else {
-        set({
-          progress: prog,
-          currentRunSummary: `Running combo ${prog.currentCombo + 1}/${prog.totalCombos}: ${prog.comboLabel} — run ${prog.currentRun + 1}/${prog.runsPerCombo}`,
-          currentRunLog: [],
-        });
-      }
-    });
+    const labResult = await runStrategyLab(
+      config,
+      (prog, currentResult) => {
+        if (currentResult) {
+          set({
+            progress: prog,
+            currentRunLog: currentResult.combatLog.slice(-15),
+            currentRunSummary: currentResult.runSummary,
+          });
+        } else {
+          set({
+            progress: prog,
+            currentRunSummary: `Running combo ${prog.currentCombo + 1}/${prog.totalCombos}: ${prog.comboLabel} — run ${prog.currentRun + 1}/${prog.runsPerCombo}`,
+            currentRunLog: [],
+          });
+        }
+      },
+      () => get().cancelRequested
+    );
 
     set({
       isRunning: false,
@@ -80,6 +88,10 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
     });
   },
 
+  cancelLab: () => {
+    set({ cancelRequested: true });
+  },
+
   resetLab: () => {
     set({
       result: null,
@@ -87,6 +99,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
       progress: null,
       currentRunLog: [],
       currentRunSummary: "",
+      cancelRequested: false,
       config: { ...defaultLabConfig(), baseSeed: generateSeed() },
     });
   },

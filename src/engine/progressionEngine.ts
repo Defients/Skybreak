@@ -2,6 +2,8 @@ import type { GameState } from "../types/gameState";
 import type { ScoreResult } from "../types/ui";
 import { getLivingHeroes } from "./rulesEngine";
 import { emitEvent } from "./eventLog";
+import { grantRewards, cleanupCombat } from "./combatEngine";
+import { markRoomResolved, advanceRoom } from "./rulesEngine";
 
 export function resolveRestChoice(
   state: GameState,
@@ -225,4 +227,82 @@ export function finalizeRunStats(state: GameState): GameState {
       deadliestMonster,
     },
   };
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Shared combat room resolution
+// ──────────────────────────────────────────────────────────────────
+
+export interface ResolveCombatRoomResult {
+  state: GameState;
+  /** "victory" if the final boss was defeated and the run is won.
+   *  "defeat" if the party was wiped.
+   *  "continue" if the room was resolved and the run advances.
+   *  "retreat" if the heroes retreated (treated like continue). */
+  terminal: "victory" | "defeat" | "continue";
+  /** The monster that defeated the party, if applicable. */
+  defeatedByMonster?: string;
+}
+
+/**
+ * Shared terminal resolver for a combat room. Called after combat has
+ * produced a combatResult. Handles:
+ *   - grantRewards + cleanupCombat on victory
+ *   - checkVictory BEFORE cleanup (final-boss finalization)
+ *   - checkDefeat + finalizeRunStats + phase: "defeat" on party wipe
+ *   - cleanupCombat + markRoomResolved + advanceRoom for non-terminal results
+ *
+ * Both the playable path (gameStore.doResolveRoom) and the batch path
+ * (batchSimulationEngine.processRoom) use this to ensure identical terminal
+ * semantics.
+ */
+export function resolveCombatRoom(state: GameState): ResolveCombatRoomResult {
+  const combatResult = state.combat?.combatResult;
+  if (!combatResult) {
+    return { state, terminal: "continue" };
+  }
+
+  if (combatResult === "victory") {
+    // Capture final-boss victory BEFORE cleanupCombat clears the combat object.
+    const finalBossVictory = checkVictory(state);
+    let newState = grantRewards(state);
+    const defeatedBy = state.combat?.monster.name;
+    newState = cleanupCombat(newState);
+    if (finalBossVictory) {
+      newState = finalizeRunStats(newState);
+      const score = calculateScore(newState);
+      newState = { ...newState, phase: "victory", score };
+      newState = emitEvent(newState, "VICTORY",
+        `Judgment survived! The ascent is complete! Final Score: ${score.finalScore}. Title: ${score.title}`,
+        { details: { score: score.finalScore, title: score.title } });
+      return { state: newState, terminal: "victory" };
+    }
+    // Non-final-boss victory: advance to next room.
+    newState = markRoomResolved(newState);
+    newState = advanceRoom(newState);
+    return { state: newState, terminal: "continue" };
+  }
+
+  if (combatResult === "defeat") {
+    const defeatedBy = state.combat?.monster.name;
+    if (checkDefeat(state)) {
+      let newState = finalizeRunStats(state);
+      newState = { ...newState, phase: "defeat" };
+      newState = emitEvent(newState, "DEFEAT",
+        "The party has been wiped out. The Astrilith claims another group of adventurers.",
+        { details: { reason: "party_wipe" } });
+      return { state: newState, terminal: "defeat", defeatedByMonster: defeatedBy };
+    }
+    // Party not fully wiped (e.g. retreat with survivors): advance.
+    let newState = cleanupCombat(state);
+    newState = markRoomResolved(newState);
+    newState = advanceRoom(newState);
+    return { state: newState, terminal: "continue" };
+  }
+
+  // retreat or other: cleanup and advance
+  let newState = cleanupCombat(state);
+  newState = markRoomResolved(newState);
+  newState = advanceRoom(newState);
+  return { state: newState, terminal: "continue" };
 }

@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **728 tests / 24 files**, jsdom, ~60s)
+- Test: `npm test` (vitest run, **731 tests / 24 files**, jsdom, ~37s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -59,16 +59,16 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - `monsterAbilityEngine.finishMonsterTurn` (after monster turn — also maintains `roundsWithoutProgress`/`lastHpSnapshot`)
 `combatResult` is set on `state.combat` by these engine functions. `gameStore.doResolveRoom` consumes `combatResult` to grant rewards / cleanup / advance.
 
-## AI Execution Map (verified at HEAD 80540bc)
+## AI Execution Map (verified at HEAD 80540bc; updated Phase 2)
 - Batch + Strategy Lab: `batchSimulationEngine.autoPlayCombat` → `combatRunner.runCombatStep` → `aiPlayHeroTurn` (shared). Strategy Lab calls `runSingleGame`.
-- Sim mode: `hooks/useAutoPlay.step` now routes through `aiPlayHeroTurn` (no longer inline), but still hardcodes `"balanced"` and ignores `combatStrategy`.
-- Hybrid mode: `CombatView.executeAIHeroTurn` — re-verify whether it still hardcodes 0.3 / ignores strategy.
-- `aiController.aiPlayHeroTurn` — canonical decision fn, now called by `combatRunner.runCombatStep` and `useAutoPlay`.
+- Sim mode: `hooks/useAutoPlay.step` routes through `aiPlayHeroTurn` and now reads `combatStrategy`/`merchantStrategy` from `SimulationConfig` (defaults to `"balanced"`).
+- Hybrid mode: `CombatView.executeAIHeroTurn` routes through `aiPlayHeroTurn` and now reads `combatStrategy` from `SimulationConfig`.
+- `aiController.aiPlayHeroTurn` — canonical decision fn, called by `combatRunner.runCombatStep`, `useAutoPlay`, and `CombatView`.
 - The dead `aiAutoPlayFullCombat` / `aiExecuteHeroTurn` functions referenced in the old audit have been REMOVED; `executeAiHeroDecision` is the current executor.
 
-## Known Divergences (outstanding; tracked in Megaplan §4 as B5/B6)
-- `useAutoPlay` still hardcodes `"balanced"` and ignores `combatStrategy` (no longer inline, but strategy not honored).
-- `batchSimulationEngine.autoPlayCombat` has a redundant local stalemate counter that forces retreat at 5 no-progress rounds WITHOUT the `round > 10` guard that canonical `checkCombatEnd` requires. Batch retreats earlier than playable.
+## Known Divergences (outstanding)
+- ~~`useAutoPlay` and `CombatView` hardcode `"balanced"`~~ — RESOLVED (Phase 2: both now read from `SimulationConfig`).
+- `batchSimulationEngine.autoPlayCombat` has a local no-progress counter that force-completes a hero's turn after 3 identical state keys. This is a stuck-AI loop-breaker, NOT a stalemate retreat; the canonical `checkCombatEnd` stalemate (round > 10 + 5 no-progress) still applies. Documented as intentional.
 - `randomParty` suit selection can never produce `spades` (`Math.min(3, Math.floor((roll-1)/2))` caps at index 2). `aiPickSplitChoice`/`pickSplitChoice` "random" can return an out-of-bounds index for d6=6. `aiMerchantActions` proposes purchases with no gold/affordability check. "never" item-usage is violated by defensive/survivalist `Math.max(default, ht)` clamping. All have failing fixtures in `src/tests/regressionMegaplan.test.ts`.
 
 ## Megaplan Phase 0 — Reproduced Defect Fixtures (added 2026-09-07)
@@ -86,5 +86,11 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - ~~`gameStore` merchant actions omit `withRng`~~ — RESOLVED. `doEnterMerchant`/`doBuyItem`/etc. now call `withRng`.
 - ~~`doManualOverride` `__proto__`/`constructor` path risk~~ — RESOLVED. Path keys are now blocked (`gameStore.ts:506-510`); arrays preserved via `[...arr]`.
 - ~~`doResetGame` does not call `hybridStore.resetAIControl`~~ — RESOLVED (`gameStore.ts:580`).
-- `saveLoad.importSave` performs structural validation via `isValidSaveShape`, but it does NOT validate the phase enum or hero fields, and legacy `skyward_ascent_*` keys are not discovered. `RngEngine.deserialize` accepts an unbounded/negative `step`. All tracked as B3 with failing fixtures.
-- `gameStore.doResolveRoom` clears combat (via `cleanupCombat`) BEFORE calling `checkVictory`, so a live final-boss victory never finalizes (B1, failing fixture).
+- ~~`saveLoad.importSave` structural validation weak; legacy keys not discovered; RNG unbounded~~ — RESOLVED (Phase 1 B3: `isValidSaveShape` validates phase enum + hero fields; `importLegacySaves` discovers `skyward_ascent_*`; `RngEngine.deserialize` clamps step).
+- ~~`gameStore.doResolveRoom` clears combat before `checkVictory`~~ — RESOLVED (Phase 1 B1 + Phase 2: both paths now use shared `resolveCombatRoom` which checks victory before cleanup).
+- ~~`useAutoPlay` and `CombatView` ignore `combatStrategy`~~ — RESOLVED (Phase 2 B6: both now read `combatStrategy`/`merchantStrategy` from `SimulationConfig`).
+- ~~Batch path never resolves welcome bonus on easy/normal~~ — RESOLVED (Phase 2: `runSingleGame` now calls `rollWelcomeBonus` + `applyWelcomeBonusResults`).
+- ~~Batch path never calls `finalizeRunStats`~~ — RESOLVED (Phase 2: `runSingleGame` now finalizes MVP/deadliest monster).
+- ~~`runBatch`/`runStrategyLab` not cancellable~~ — RESOLVED (Phase 2: both accept `isCancelled` callback; stores wire `cancelRequested`).
+- ~~Strategy Lab uses independent seeds per combo~~ — RESOLVED (Phase 2: `sharedCohort` option replays same seed across combos for comparable results).
+- ~~`startCombat` clears the event log~~ — RESOLVED (Phase 2: log is now preserved across combat; welcome bonus and room events survive).

@@ -130,7 +130,8 @@ export function startCombat(
     ...state,
     phase: "combat_setup",
     combat,
-    log: [],
+    // Preserve the run-level event log (welcome bonus, room events, etc.)
+    // rather than clearing it at combat start. Combat events are appended.
   };
 
   const eventState = emitEvent(newState, "COMBAT_STARTED", `Combat started! ${isElite ? "Elite " : ""}${isMiniBoss ? "Mini-Boss " : ""}${isFinalBoss ? "Final Boss " : ""}${monster.name} appears! HP: ${monsterHp}. Gold reward: ${monsterGold}g.`, {

@@ -95,8 +95,9 @@ export function useAutoPlay() {
           (id) => !combat.completedHeroTurns.includes(id) && getHeroById(currentState, id)?.alive
         );
         if (nextHeroId) {
-          // Canonical AI decision — sim mode uses the balanced strategy.
-          const decision = aiPlayHeroTurn(currentState, currentRng, nextHeroId, "balanced");
+          // Canonical AI decision — uses the combat strategy from config.
+          const combatStrategy = currentState.settings.combatStrategy ?? "balanced";
+          const decision = aiPlayHeroTurn(currentState, currentRng, nextHeroId, combatStrategy);
           if (decision.action === "attack") {
             doHeroAction(nextHeroId, "attack", decision.targetId ?? combat.monster.id);
           } else if (decision.action === "use_item") {
@@ -122,7 +123,8 @@ export function useAutoPlay() {
         doEnterMerchant();
         return;
       }
-      const purchases = aiMerchantActions(currentState, "balanced");
+      const merchantStrategy = currentState.settings.merchantStrategy ?? "balanced";
+      const purchases = aiMerchantActions(currentState, merchantStrategy);
       if (purchases.length > 0) {
         const p = purchases[0];
         if (p.type === "item") {

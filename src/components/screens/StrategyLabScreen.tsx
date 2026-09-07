@@ -126,6 +126,7 @@ export function StrategyLabScreen({ onBack }: Props) {
     setConfig,
     setAxes,
     startLab,
+    cancelLab,
     resetLab,
     doDownloadJSON,
     doDownloadCSV,
@@ -145,7 +146,7 @@ export function StrategyLabScreen({ onBack }: Props) {
   const totalRuns = comboCount * config.runsPerCombo;
 
   if (isRunning) {
-    return <RunningView progress={progress} currentRunLog={currentRunLog} currentRunSummary={currentRunSummary} onBack={onBack} />;
+    return <RunningView progress={progress} currentRunLog={currentRunLog} currentRunSummary={currentRunSummary} onBack={onBack} onCancel={cancelLab} />;
   }
 
   if (result) {
@@ -491,20 +492,27 @@ function RunningView({
   currentRunLog,
   currentRunSummary,
   onBack,
+  onCancel,
 }: {
   progress: { currentCombo: number; totalCombos: number; currentRun: number; runsPerCombo: number; comboLabel: string } | null;
   currentRunLog: GameEvent[];
   currentRunSummary: string;
   onBack: () => void;
+  onCancel?: () => void;
 }) {
   const comboPct = progress ? Math.round(((progress.currentCombo + progress.currentRun / progress.runsPerCombo) / progress.totalCombos) * 100) : 0;
   const runPct = progress ? Math.round((progress.currentRun / progress.runsPerCombo) * 100) : 0;
+
+  const handleCancel = () => {
+    onCancel?.();
+    onBack();
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-display gold-text">Running Strategy Lab...</h2>
-        <button className="btn-ghost text-sm px-4 py-2" onClick={onBack}>← Cancel</button>
+        <button className="btn-ghost text-sm px-4 py-2" onClick={handleCancel}>← Cancel</button>
       </div>
 
       <div className="glass-card p-6 space-y-4">
