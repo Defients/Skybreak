@@ -1,6 +1,6 @@
 import type { GameState, SaveData } from "../types/gameState";
 import { WEAPONS } from "../data/weapons";
-import { ITEMS } from "../data/items";
+import { ITEMS, resolveItemData } from "../data/items";
 import { RngEngine } from "../utils/random";
 
 const STORAGE_KEY = "skybreak_saves";
@@ -105,7 +105,7 @@ export function migrateLegacyState(state: GameState): GameState {
             if (newHero.items && newHero.items.length > 0) {
               const updatedItems = newHero.items.map(i => {
                 if (i.tags && i.itemId) return i;
-                const itemData = ITEMS[i.name as keyof typeof ITEMS];
+                const itemData = resolveItemData(i);
                 if (itemData) {
                   return { ...i, itemId: itemData.itemId, tags: itemData.tags };
                 }

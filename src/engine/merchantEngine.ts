@@ -1,7 +1,7 @@
 import type { GameState, MerchantState } from "../types/gameState";
 import type { HeroState } from "../types/heroes";
 import type { WeaponRarity, EnchantmentName, EnchantmentInstance } from "../types/inventory";
-import { ITEMS, HEALING_SERVICES, PERMANENT_UPGRADES, WEAPON_SERVICES, getItemCost, getHealingCost, getUpgradeCost } from "../data/items";
+import { ITEMS, HEALING_SERVICES, PERMANENT_UPGRADES, WEAPON_SERVICES, getItemCost, getHealingCost, getUpgradeCost, resolveItemData } from "../data/items";
 import { WEAPONS, WEAPON_RARITY_DATA } from "../data/weapons";
 import { ENCHANTMENTS, getEnchantmentCost } from "../data/enchantments";
 import { emitEvent } from "./eventLog";
@@ -696,6 +696,7 @@ export function getSuggestedPurchases(state: GameState): SuggestedPurchase[] {
 
   for (const item of merchant.items) {
     if (gold < item.cost || item.quantity <= 0) continue;
+    const merchantItemId = ITEMS[item.name as keyof typeof ITEMS]?.itemId;
     const heroesWithSpace = living.filter(h => {
       const ep = h.upgrades.filter(u => u.name === "Extra Pocket").length;
       return h.items.length < 3 + ep;
@@ -705,29 +706,29 @@ export function getSuggestedPurchases(state: GameState): SuggestedPurchase[] {
     let score = 0;
     let reason = "";
 
-    if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "minor_potion" && !hasPotion && injuredHeroes.length > 0) {
+    if (merchantItemId === "minor_potion" && !hasPotion && injuredHeroes.length > 0) {
       score = 71; reason = `No healing potions in inventory — ${injuredHeroes.length} hero${injuredHeroes.length > 1 ? "es" : ""} damaged`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "guardian_angel" && !hasGuardianAngel && tier >= 2) {
+    } else if (merchantItemId === "guardian_angel" && !hasGuardianAngel && tier >= 2) {
       score = 76; reason = `No revive safety net — Guardian Angel prevents a full party wipe`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "bomb" && !hasBomb) {
+    } else if (merchantItemId === "bomb" && !hasBomb) {
       score = tier >= 2 ? 66 : 56; reason = `AoE damage is valuable against groups${tier >= 2 ? " in the upper Astrilith" : ""}`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "power_scroll" && !hasPowerScroll) {
+    } else if (merchantItemId === "power_scroll" && !hasPowerScroll) {
       score = 61; reason = `+3 damage burst can secure a kill in a tight fight`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "shield_charm" && !hasShieldCharm) {
+    } else if (merchantItemId === "shield_charm" && !hasShieldCharm) {
       const guardian = living.find(h => h.className === "Guardian");
       score = guardian ? 66 : 56;
       reason = guardian ? `Shield Charm synergizes with ${guardian.name}'s Guardian kit` : `Emergency shields for any hero`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "ability_blocker" && !hasAbilityBlocker && tier >= 2) {
+    } else if (merchantItemId === "ability_blocker" && !hasAbilityBlocker && tier >= 2) {
       score = 63; reason = `Negating a monster special can save a fight in Tier ${tier}+`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "smoke_bomb" && !hasSmokeBomb && tier >= 2) {
+    } else if (merchantItemId === "smoke_bomb" && !hasSmokeBomb && tier >= 2) {
       score = 59; reason = `Escape option for unwinnable fights in the upper Astrilith`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "treasure_map" && !hasTreasureMap) {
+    } else if (merchantItemId === "treasure_map" && !hasTreasureMap) {
       score = 50; reason = `Double gold from next room — investment that pays off`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "speed_potion" && !hasSpeedPotion) {
+    } else if (merchantItemId === "speed_potion" && !hasSpeedPotion) {
       score = 57; reason = `Extra turn can turn the tide of a difficult combat`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "lucky_charm" && !hasLuckyCharm) {
+    } else if (merchantItemId === "lucky_charm" && !hasLuckyCharm) {
       score = 53; reason = `Reroll capability is universally useful`;
-    } else if (ITEMS[item.name as keyof typeof ITEMS]?.itemId === "mystic_rune" && !hasMysticRune) {
+    } else if (merchantItemId === "mystic_rune" && !hasMysticRune) {
       score = 53; reason = `Activate specialization ability on demand`;
     }
 
@@ -917,7 +918,7 @@ function tryAutoBuyOnce(state: GameState): GameState {
     ];
 
     const allPartyItemTags = state.party.heroes.flatMap(h => h.items).flatMap(i => {
-      const itemData = ITEMS[i.name as keyof typeof ITEMS];
+      const itemData = resolveItemData(i);
       return itemData?.tags ?? [];
     });
 

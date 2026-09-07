@@ -16,8 +16,8 @@ import {
 } from "../../assets/assetRegistry";
 import { formatLogSummary, getEventTypeStyle } from "../../utils/logFormatter";
 import { Tooltip } from "../ui/Tooltip";
-import { ITEMS } from "../../data/items";
-import { getItemImage } from "../../assets/assetRegistry";
+import { resolveItemData } from "../../data/items";
+import { getItemImage, getItemImageById } from "../../assets/assetRegistry";
 import { suitSymbol, isRedSuit, getApcColors } from "../../types/cards";
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
 import { HeroIcon } from "../ui/HeroIcon";
@@ -199,9 +199,9 @@ export function GameDashboard({ onNavigate }: Props) {
             {hero.items.length > 0 && (
               <div className="text-xs text-spire-muted mt-1 flex items-center flex-wrap gap-1.5">
                 {hero.items.map((item, idx) => {
-                  const itemData = ITEMS[item.name as keyof typeof ITEMS];
+                  const itemData = resolveItemData(item);
                   const effect = itemData?.effect ?? item.effect;
-                  const iUrl = getItemImage(item.name);
+                  const iUrl = getItemImageById(item.itemId ?? "") ?? getItemImage(item.name);
                   return (
                     <Tooltip
                       key={idx}

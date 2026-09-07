@@ -16,6 +16,7 @@ import {
   getFogImage,
   getStarsImage,
   getItemImage,
+  getItemImageById,
   getGoldCoinImage,
   getCardBackImage,
 } from "../../assets/assetRegistry";
@@ -24,7 +25,7 @@ import { PetIcon } from "../ui/PetIcon";
 import { formatLogSummary, getEventTypeStyle } from "../../utils/logFormatter";
 import { formatAbilityText } from "../../utils/formatAbilityText";
 import { ExplainTurnIcon } from "../combat/ExplainTurn";
-import { ITEMS } from "../../data/items";
+import { resolveItemData } from "../../data/items";
 import { suitSymbol, isRedSuit, getApcColors, APC_COLORS } from "../../types/cards";
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
 import { getMonsterById, MONSTERS, SUMMON_DATA } from "../../data/monsters";
@@ -77,6 +78,7 @@ const ENVIRONMENT_EMOJIS: Record<string, string> = {
 
 interface ItemEntry {
   name: string;
+  itemId?: string;
   quantity: number;
   effect?: string;
 }
@@ -105,9 +107,9 @@ function ItemDropdown({ items, onUse, onOpenChange }: { items: ItemEntry[]; onUs
           <div className="fixed inset-0 z-80" onClick={() => { setOpen(false); onOpenChange?.(false); }} />
           <div className="absolute top-full left-0 mt-1 z-[90] glass-panel rounded-lg border border-spire-border/60 shadow-panel overflow-hidden max-h-64 overflow-y-auto min-w-[200px] w-max">
             {items.map((item, idx) => {
-              const itemData = ITEMS[item.name as keyof typeof ITEMS];
+              const itemData = resolveItemData(item);
               const effect = itemData?.effect ?? item.effect ?? "";
-              const itemImg = getItemImage(item.name);
+              const itemImg = getItemImageById(item.itemId ?? "") ?? getItemImage(item.name);
               return (
                 <button
                   key={idx}

@@ -1,7 +1,7 @@
 import type { WeaponInstance, ItemInstance } from "../types/inventory";
 import type { HeroState } from "../types/heroes";
 import { WEAPONS } from "../data/weapons";
-import { ITEMS } from "../data/items";
+import { resolveItemData } from "../data/items";
 
 // ─── Weapon tag matching ───────────────────────────────────────────────────
 
@@ -92,15 +92,7 @@ function legacyWeaponNameMatch(weaponName: string, tag: string): boolean {
  */
 function lookupItemTags(item: ItemInstance): string[] | undefined {
   if (item.tags && item.tags.length > 0) return item.tags;
-  if (item.itemId) {
-    // Find by itemId in the ITEMS record
-    for (const key of Object.keys(ITEMS)) {
-      const data = ITEMS[key as keyof typeof ITEMS];
-      if (data.itemId === item.itemId) return data.tags;
-    }
-  }
-  // Legacy fallback: look up by name in ITEMS record
-  const data = ITEMS[item.name as keyof typeof ITEMS];
+  const data = resolveItemData(item);
   return data?.tags;
 }
 
@@ -152,6 +144,6 @@ export function findItemByTag(items: ItemInstance[], tag: string): ItemInstance 
  */
 export function getItemId(item: ItemInstance): string | undefined {
   if (item.itemId) return item.itemId;
-  const data = ITEMS[item.name as keyof typeof ITEMS];
+  const data = resolveItemData(item);
   return data?.itemId;
 }

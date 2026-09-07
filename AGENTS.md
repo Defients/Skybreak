@@ -137,3 +137,6 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - **Full content-ID migration**: Re-keying `ITEMS` by `itemId`, making
   `ItemInstance.itemId` required, replacing display-name engine/UI lookups.
   Requires save migration and broad compatibility testing. Deferred.
+  Phase 6b made incremental progress: `resolveItemData()` helper added,
+  CombatView/GameDashboard/merchantEngine/saveLoad/tagMatchers now prefer
+  `itemId` with name fallback. `itemId` remains optional.
