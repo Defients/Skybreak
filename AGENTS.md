@@ -35,13 +35,20 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - Asset registry strips extensions at lookup time, so no lookup-key changes needed.
 - Direct imports (deffy.webp) and public references (index.html, manifest.json) updated.
 
-## Structural Decomposition Findings (SA-12, deferred)
-- Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),
-  CombatView.tsx (71 KB), heroAbilityEngine.ts (66 KB), StrategyLabScreen.tsx (62 KB).
-- 757 tests now protect behavior across all paths, making decomposition safe.
-- RECOMMENDATION: Split per-class hero/monster ability resolvers into
-  separate files, extract MerchantView/CombatView sub-components. Deferred
-  to user direction — no behavior change, pure maintainability improvement.
+## Structural Decomposition (Phase 7, completed)
+- heroAbilityEngine.ts: 1458 → 1140 lines. Extracted:
+  - `src/engine/heroDamage.ts` (235 lines) — `applyHeroDamage`, `applyBasicHeroDamage`, `extractBaseDamage`
+  - `src/engine/heroPetTurn.ts` (118 lines) — `executePetTurn`, `findPetRollEntry`
+- monsterAbilityEngine.ts: 1350 → 1136 lines. Extracted:
+  - `src/engine/monsterHelpers.ts` (245 lines) — `findRollEntry`, `getMonsterRollModifier`,
+    `getMonsterDamageModifier`, `getMonsterActionCount`, `getActiveHero`, `healMonster`,
+    `applyDebuffToHero`, `applyDebuffToMonster`, `createSummon`, `executeSummonTurns`,
+    `applyDebuffsFromEffect`
+- CombatView.tsx: 1459 → 1277 lines. Extracted:
+  - `src/components/combat/CombatWidgets.tsx` (199 lines) — `colorizeHeads`, `colorizeApc`,
+    `ItemDropdown`, `CombatLogTooltip`, `ItemEntry` interface
+- All extractions are pure structural refactors — no behavior change.
+- 757 tests protect all paths; full suite passes after decomposition.
 
 ## Architecture (verified at HEAD 7fad9ef)
 - `src/engine/` — pure engine layer (GameState in → GameState out).
