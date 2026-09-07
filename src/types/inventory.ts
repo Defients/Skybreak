@@ -120,7 +120,7 @@ export interface ItemData {
 export interface ItemInstance {
   id: string;
   name: string;
-  itemId?: string;
+  itemId: string;
   effect: string;
   stackLimit: number;
   quantity: number;

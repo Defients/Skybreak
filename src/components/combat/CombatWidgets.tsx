@@ -55,7 +55,7 @@ export function colorizeApc(text: string) {
 
 export interface ItemEntry {
   name: string;
-  itemId?: string;
+  itemId: string;
   quantity: number;
   effect?: string;
 }

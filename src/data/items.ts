@@ -217,14 +217,10 @@ export function getItemDataByName(name: string): ItemData | undefined {
 /**
  * Resolve item data from an ItemInstance, preferring the stable `itemId`
  * when present, falling back to the display name for legacy saves.
- * Returns undefined if neither path resolves.
+ * Returns undefined if the itemId does not resolve.
  */
-export function resolveItemData(item: { itemId?: string; name: string }): ItemData | undefined {
-  if (item.itemId) {
-    const data = ITEMS_BY_ID[item.itemId];
-    if (data) return data;
-  }
-  return ITEMS[item.name as ItemType];
+export function resolveItemData(item: { itemId: string; name: string }): ItemData | undefined {
+  return ITEMS_BY_ID[item.itemId];
 }
 
 export function getHealingCost(name: string, tier: 1 | 2 | 3): number {

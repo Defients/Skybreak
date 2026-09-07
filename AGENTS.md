@@ -119,7 +119,8 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   - `ClassData.classId` added to all four classes (`bladedancer`, `manipulator`, `tracker`, `guardian`).
   - `RoomNode.roomId` added to all generated rooms and split options (format: `t{tier}_{index}_{type}`).
   - `ITEMS_BY_ID` index and `getItemData(itemId)` helper added alongside the existing display-name-keyed `ITEMS` map.
-  - `ItemInstance.itemId` remains optional to preserve old save compatibility.
+  - `ItemInstance.itemId` is now **required** (Phase 9). Legacy saves are backfilled by `migrateLegacyState`.
+  - `resolveItemData` is now strict — resolves by `itemId` only, no name fallback.
 - **ID-based asset lookup helpers** in `src/assets/assetRegistry.ts`:
   - `getMonsterImageById(id)`, `getWeaponImageById(id)`, `getItemImageById(itemId)`.
   - Legacy name-based helpers (`getMonsterImage`, `getWeaponImage`, `getItemImage`) retained.

@@ -944,7 +944,7 @@ describe("Hero Ability Engine — Item Usage", () => {
           i === 0 ? {
             ...h,
             currentHp: Math.max(1, h.maxHp - 10),
-            items: [...h.items, { id: "item_potion_1", name: "Minor Potion", effect: "Heal 8 HP instantly", stackLimit: 2, quantity: 1 }],
+            items: [...h.items, { id: "item_potion_1", name: "Minor Potion", itemId: "minor_potion", effect: "Heal 8 HP instantly", stackLimit: 2, quantity: 1 }],
           } : h
         ),
       },
@@ -979,7 +979,7 @@ describe("Hero Ability Engine — Item Usage", () => {
         heroes: combatState.party.heroes.map((h, i) =>
           i === 0 ? {
             ...h,
-            items: [...h.items, { id: "item_shield_1", name: "Shield Charm", effect: "Gain 2 shields", stackLimit: 2, quantity: 1 }],
+            items: [...h.items, { id: "item_shield_1", name: "Shield Charm", itemId: "shield_charm", effect: "Gain 2 shields", stackLimit: 2, quantity: 1 }],
           } : h
         ),
       },
@@ -1012,7 +1012,7 @@ describe("Hero Ability Engine — Item Usage", () => {
         heroes: combatState.party.heroes.map((h, i) =>
           i === 0 ? {
             ...h,
-            items: [...h.items, { id: "item_bomb_1", name: "Bomb", effect: "Deal 5 damage to all enemies", stackLimit: 2, quantity: 1 }],
+            items: [...h.items, { id: "item_bomb_1", name: "Bomb", itemId: "bomb", effect: "Deal 5 damage to all enemies", stackLimit: 2, quantity: 1 }],
           } : h
         ),
       },
@@ -1088,7 +1088,7 @@ describe("Hero Ability Engine — Item Usage", () => {
         heroes: combatState.party.heroes.map((h, i) =>
           i === 0 ? {
             ...h,
-            items: [...h.items, { id: "item_blocker_1", name: "Ability Blocker", effect: "Negate monster special", stackLimit: 1, quantity: 1 }],
+            items: [...h.items, { id: "item_blocker_1", name: "Ability Blocker", itemId: "ability_blocker", effect: "Negate monster special", stackLimit: 1, quantity: 1 }],
           } : h
         ),
       },

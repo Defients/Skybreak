@@ -171,7 +171,7 @@ describe("Merchant Engine — Item Lookup by itemId", () => {
     const { state, rng } = startCombatState("item-name-lookup");
     const heroId = state.party.heroes[0].id;
 
-    // Add a Minor Potion without itemId (legacy save style)
+    // Add a Minor Potion (itemId now required, but dispatch still works by name)
     const itemState: GameState = {
       ...state,
       party: {
@@ -185,6 +185,7 @@ describe("Merchant Engine — Item Lookup by itemId", () => {
                   {
                     id: "test-potion-2",
                     name: "Minor Potion",
+                    itemId: "minor_potion",
                     effect: ITEMS["Minor Potion"].effect,
                     stackLimit: 3,
                     quantity: 1,
