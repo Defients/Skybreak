@@ -40,6 +40,7 @@ import {
   parseCapsule,
   isValidCapsule,
 } from "../engine/runCapsule";
+import { getPrimaryVerdict } from "../engine/vyridianVerdict";
 import type { GameState } from "../types/gameState";
 import type { BatchConfig } from "../types/batch";
 
@@ -551,5 +552,68 @@ describe("Megaplan Phase 3 — Ascent Capsules", () => {
       createdAt: "x",
     };
     expect(isValidCapsule(bad)).toBe(false);
+  });
+});
+
+// ============================================================
+// Phase 4 — Vyridian's Verdict (cosmetic narrative epilogue)
+// ============================================================
+
+describe("Megaplan Phase 4 — Vyridian's Verdict", () => {
+  // Helper: create a state with given stat overrides and phase.
+  function makeState(overrides: Partial<GameState["stats"]>, phase: "victory" | "defeat", heroesAlive = 3): GameState {
+    const config = createDefaultConfig({ seed: "verdict-test" });
+    const party: PartySetupChoice[] = [
+      { className: "Bladedancer", suit: "hearts", position: 1 },
+      { className: "Guardian", suit: "clubs", position: 2 },
+      { className: "Tracker", suit: "spades", position: 3 },
+    ];
+    const state = initializeGame(config, party);
+    return {
+      ...state,
+      phase,
+      stats: { ...state.stats, ...overrides },
+      party: {
+        ...state.party,
+        heroes: state.party.heroes.map((h, i) => ({
+          ...h,
+          alive: i < heroesAlive,
+        })),
+      },
+    };
+  }
+
+  it("FM#10: victory with no deaths returns 'The Unbroken' verdict", () => {
+    const state = makeState({ deaths: 0, revivals: 0, perfectCombats: 0 }, "victory", 3);
+    const verdict = getPrimaryVerdict(state);
+    expect(verdict.id).toBe("unbroken");
+    expect(verdict.title).toBe("The Unbroken");
+    expect(verdict.text.length).toBeGreaterThan(20);
+  });
+
+  it("FM#10: victory with deaths returns a sacrifice-themed verdict", () => {
+    const state = makeState({ deaths: 1, revivals: 0 }, "victory", 2);
+    const verdict = getPrimaryVerdict(state);
+    // The Sacrificed should be the primary verdict (weight 85 > Resilient's 70).
+    expect(verdict.id).toBe("sacrificed");
+  });
+
+  it("FM#10: defeat that reached the final boss returns 'The Defiant'", () => {
+    const state = makeState({ bossPhaseReached: "Phase 2" }, "defeat", 0);
+    const verdict = getPrimaryVerdict(state);
+    expect(verdict.id).toBe("defiant");
+  });
+
+  it("FM#10: defeat before the final boss returns 'The Fallen'", () => {
+    const state = makeState({ roomsCleared: 5 }, "defeat", 0);
+    const verdict = getPrimaryVerdict(state);
+    expect(verdict.id).toBe("fallen");
+  });
+
+  it("FM#10: verdict is purely cosmetic — no state mutation", () => {
+    const state = makeState({ deaths: 0 }, "victory", 3);
+    const stateCopy = JSON.parse(JSON.stringify(state));
+    getPrimaryVerdict(state);
+    expect(state).toEqual(stateCopy);
   });
 });

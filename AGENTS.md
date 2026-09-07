@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **738 tests / 24 files**, jsdom, ~40s)
+- Test: `npm test` (vitest run, **743 tests / 24 files**, jsdom, ~39s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -102,3 +102,10 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - `src/engine/runCapsule.ts` — versioned reproduction packet (`RunCapsule` type, `buildRunCapsule`, `serializeCapsule`, `parseCapsule`, `copyCapsuleToClipboard`).
 - `RunReport.tsx` — "Copy Ascent Capsule" button copies seed/party/difficulty/outcome to clipboard.
 - Capsules capture starting conditions for replay/sharing; they are NOT save files.
+
+## Vyridian's Verdict (Phase 4)
+- `src/engine/vyridianVerdict.ts` — cosmetic narrative epilogue based on run stats.
+- `computeVerdict(state)` returns archetypes sorted by weight; `getPrimaryVerdict(state)` returns the top one.
+- Archetypes: The Unbroken (victory, no deaths), The Sacrificed (victory + deaths), The Resilient (revivals), The Flawless (perfect combats), The Frugal (low spending), The Defiant (defeat at final boss), The Fallen (defeat before boss), The Resourceful (many items used).
+- Purely cosmetic — no state mutation, no balance effects, no hidden ending rules.
+- Displayed in `RunReport.tsx` between the header and the score breakdown.

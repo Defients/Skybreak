@@ -4,6 +4,7 @@ import { calculateScore } from "../../engine/progressionEngine";
 import { getLivingHeroes } from "../../engine/rulesEngine";
 import { useAudio } from "../../audio/useAudio";
 import { buildRunCapsule, copyCapsuleToClipboard } from "../../engine/runCapsule";
+import { getPrimaryVerdict } from "../../engine/vyridianVerdict";
 import {
   getVictoryBackground,
   getDefeatBackground,
@@ -33,6 +34,7 @@ export function RunReport({ state, onHome }: Props) {
   const livingHeroes = getLivingHeroes(state);
   const { playMusic, playSfx } = useAudio();
   const [capsuleCopied, setCapsuleCopied] = useState(false);
+  const verdict = getPrimaryVerdict(state);
 
   const mvpHero = state.stats.mvpHeroId ? state.party.heroes.find(h => h.id === state.stats.mvpHeroId) : null;
   const bgUrl = isVictory ? getVictoryBackground() : getDefeatBackground();
@@ -110,6 +112,19 @@ export function RunReport({ state, onHome }: Props) {
           </div>
         )}
         </div>
+      </div>
+
+      {/* Vyridian's Verdict — cosmetic narrative epilogue */}
+      <div className="glass-card p-5 sm:p-7 space-y-3" style={{ borderColor: "rgba(167, 139, 250, 0.15)" }}>
+        <h2 className="text-sm font-display text-purple-300/80 tracking-widest uppercase flex items-center gap-2">
+          <span className="text-base">✦</span> Vyridian's Verdict
+        </h2>
+        <div className="text-lg font-display text-purple-200/90" style={{ textShadow: "0 0 12px rgba(167, 139, 250, 0.15)" }}>
+          {verdict.title}
+        </div>
+        <p className="text-sm text-spire-muted leading-relaxed italic">
+          {verdict.text}
+        </p>
       </div>
 
       <div className="glass-card p-4 sm:p-6">
