@@ -507,6 +507,11 @@ export function flipPeonCards(
   if (forcedCards) {
     cards.push(...forcedCards);
   } else {
+    // Physical Table Bridge: check for physical cards override on the RNG
+    const physicalCards = rng.consumePhysicalCards();
+    if (physicalCards && physicalCards.length >= 2) {
+      cards.push(...physicalCards.slice(0, 2));
+    } else {
     const deckManager = state.deckManager;
     if (deckManager) {
       for (let i = 0; i < 2; i++) {
@@ -530,6 +535,7 @@ export function flipPeonCards(
         });
       }
     }
+    } // end physicalCards else
   }
 
   const flipEvent: CardFlipEvent = {

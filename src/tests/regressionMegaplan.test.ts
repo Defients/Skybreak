@@ -9,6 +9,7 @@ import {
   startCombat,
   applyDamage,
   calculateDamage,
+  flipPeonCards,
 } from "../engine/combatEngine";
 import { checkAndSetCombatEnd } from "../engine/combatRunner";
 import { getLivingHeroes } from "../engine/rulesEngine";
@@ -758,5 +759,89 @@ describe("Megaplan Phase 5 — Explain This Turn", () => {
     expect(breakdown.finalDamage).toBe(5);
     expect(breakdown.phaseThrough).toBe(false);
     expect(Array.isArray(breakdown.notes)).toBe(true);
+  });
+});
+
+// ============================================================
+// Phase 6c — Physical Table Bridge
+// ============================================================
+
+describe("Megaplan Phase 6c — Physical Table Bridge", () => {
+  it("FM#13: RngEngine.setPhysicalRolls overrides rollD6 results", () => {
+    const rng = new RngEngine("physical-test");
+    rng.setPhysicalRolls([6, 1, 3]);
+    expect(rng.rollD6("test1").total).toBe(6);
+    expect(rng.rollD6("test2").total).toBe(1);
+    expect(rng.rollD6("test3").total).toBe(3);
+    // After queue is empty, falls back to seeded RNG
+    const seededRoll = rng.rollD6("test4");
+    expect(seededRoll.total).toBeGreaterThanOrEqual(1);
+    expect(seededRoll.total).toBeLessThanOrEqual(6);
+    rng.clearPhysicalOverrides();
+  });
+
+  it("FM#13: RngEngine.setPhysicalRolls overrides roll2D6 results", () => {
+    const rng = new RngEngine("physical-2d6");
+    rng.setPhysicalRolls([5, 2]);
+    const result = rng.roll2D6("test-2d6");
+    expect(result.rolls).toEqual([5, 2]);
+    expect(result.total).toBe(7);
+    rng.clearPhysicalOverrides();
+  });
+
+  it("FM#13: RngEngine.consumePhysicalCards returns and clears cards", () => {
+    const rng = new RngEngine("physical-cards");
+    const cards = [
+      { id: "test-c1", suit: "hearts" as const, rank: "5" as const, display: "5♥", deckType: "peon" as const },
+      { id: "test-c2", suit: "clubs" as const, rank: "3" as const, display: "3♣", deckType: "peon" as const },
+    ];
+    rng.setPhysicalCards(cards);
+    const consumed = rng.consumePhysicalCards();
+    expect(consumed).not.toBeNull();
+    expect(consumed!.length).toBe(2);
+    expect(consumed![0].suit).toBe("hearts");
+    // Second call returns null (already consumed)
+    const consumed2 = rng.consumePhysicalCards();
+    expect(consumed2).toBeNull();
+  });
+
+  it("FM#13: clearPhysicalOverrides clears both rolls and cards", () => {
+    const rng = new RngEngine("physical-clear");
+    rng.setPhysicalRolls([1, 2]);
+    rng.setPhysicalCards([
+      { id: "c", suit: "spades" as const, rank: "A" as const, display: "A♠", deckType: "peon" as const },
+    ]);
+    rng.clearPhysicalOverrides();
+    expect(rng.hasPhysicalRolls).toBe(false);
+    expect(rng.consumePhysicalCards()).toBeNull();
+  });
+
+  it("FM#13: flipPeonCards uses physical cards when set", () => {
+    const seed = "physical-flip";
+    const config = createDefaultConfig({ seed, mode: "simulation" });
+    let state = initializeGame(config, [
+      { className: "Bladedancer", suit: "hearts", position: 1 },
+      { className: "Guardian", suit: "clubs", position: 2 },
+      { className: "Tracker", suit: "spades", position: 3 },
+    ]);
+    const rng = new RngEngine(seed);
+    state = startCombat(state, rng);
+
+    // Set physical cards
+    const physicalCards = [
+      { id: "phys-1", suit: "hearts" as const, rank: "5" as const, display: "5♥", deckType: "peon" as const },
+      { id: "phys-2", suit: "clubs" as const, rank: "3" as const, display: "3♣", deckType: "peon" as const },
+    ];
+    rng.setPhysicalCards(physicalCards);
+
+    // Flip cards for the first hero
+    const heroId = state.party.heroes[0].id;
+    const { cards } = flipPeonCards(state, heroId, rng);
+    expect(cards.length).toBe(2);
+    expect(cards[0].suit).toBe("hearts");
+    expect(cards[0].rank).toBe("5");
+    expect(cards[1].suit).toBe("clubs");
+    expect(cards[1].rank).toBe("3");
+    rng.clearPhysicalOverrides();
   });
 });

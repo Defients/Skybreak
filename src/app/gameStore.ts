@@ -111,6 +111,8 @@ interface GameStore {
   doBeginCombat: () => void;
   doFlipCards: (actorId: string) => { cards: any[]; matches: any[] };
   doHeroAction: (heroId: string, action: string, targetId?: string) => void;
+  doHeroActionPhysical: (heroId: string, action: string, targetId: string, cards: import("../types/cards").Card[], rolls: number[]) => void;
+  doMonsterTurnPhysical: (cards: import("../types/cards").Card[], rolls: number[]) => void;
   doUseItem: (heroId: string, itemName: string, targetId?: string) => void;
   doEndTurn: (heroId: string) => void;
   doMonsterTurn: () => void;
@@ -288,6 +290,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const finalState = withRng(newState, rng);
     set({ state: finalState });
     autosave(finalState);
+  },
+
+  doHeroActionPhysical: (heroId, action, targetId, cards, rolls) => {
+    const { rng } = get();
+    if (!rng) return;
+    rng.setPhysicalCards(cards);
+    rng.setPhysicalRolls(rolls);
+    get().doHeroAction(heroId, action, targetId);
+    rng.clearPhysicalOverrides();
+  },
+
+  doMonsterTurnPhysical: (cards, rolls) => {
+    const { rng } = get();
+    if (!rng) return;
+    rng.setPhysicalCards(cards);
+    rng.setPhysicalRolls(rolls);
+    get().doMonsterTurn();
+    rng.clearPhysicalOverrides();
   },
 
   doUseItem: (heroId, itemName, targetId) => {

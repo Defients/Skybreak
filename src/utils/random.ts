@@ -28,6 +28,15 @@ export class RngEngine {
   private forcedResults: Map<number, number> = new Map();
   private static readonly MAX_HISTORY = 200;
 
+  // Physical Table Bridge: a FIFO queue of physical die results.
+  // When non-empty, rollD6/roll2D6 consume from this queue instead of
+  // generating values from the seeded PRNG. This lets a human at a
+  // physical table inject real die rolls without changing any engine
+  // function signatures.
+  private physicalRollQueue: number[] = [];
+  // Physical cards for the next flipPeonCards call. Cleared after use.
+  private physicalCardsOverride: import("../types/cards").Card[] | null = null;
+
   constructor(seed: string) {
     this.seed = seed;
     this.rng = mulberry32(hashStringToSeed(seed));
@@ -64,6 +73,36 @@ export class RngEngine {
     this.forcedResults.clear();
   }
 
+  // ─── Physical Table Bridge API ───────────────────────────────
+
+  /** Queue physical die results to be consumed by future rollD6 calls. */
+  setPhysicalRolls(values: number[]): void {
+    this.physicalRollQueue = [...values];
+  }
+
+  /** Set physical cards for the next flipPeonCards call. */
+  setPhysicalCards(cards: import("../types/cards").Card[]): void {
+    this.physicalCardsOverride = [...cards];
+  }
+
+  /** Get and clear the physical cards override (called by flipPeonCards). */
+  consumePhysicalCards(): import("../types/cards").Card[] | null {
+    const cards = this.physicalCardsOverride;
+    this.physicalCardsOverride = null;
+    return cards;
+  }
+
+  /** Check if physical rolls are queued (without consuming). */
+  get hasPhysicalRolls(): boolean {
+    return this.physicalRollQueue.length > 0;
+  }
+
+  /** Clear all physical overrides. */
+  clearPhysicalOverrides(): void {
+    this.physicalRollQueue = [];
+    this.physicalCardsOverride = null;
+  }
+
   private pushHistory(event: RandomEvent): void {
     this.history.push(event);
     if (this.history.length > RngEngine.MAX_HISTORY) {
@@ -72,10 +111,17 @@ export class RngEngine {
   }
 
   rollD6(label: string = "d6"): DiceResult {
-    const raw = Math.floor(this.next() * 6) + 1;
+    let raw: number;
+    let physical = false;
+    if (this.physicalRollQueue.length > 0) {
+      raw = this.physicalRollQueue.shift()!;
+      physical = true;
+    } else {
+      raw = Math.floor(this.next() * 6) + 1;
+    }
     this.pushHistory({
       step: this.step - 1,
-      type: "d6",
+      type: physical ? "d6-physical" : "d6",
       label,
       result: raw,
     });
@@ -90,12 +136,20 @@ export class RngEngine {
   }
 
   roll2D6(label: string = "2d6"): DiceResult {
-    const r1 = Math.floor(this.next() * 6) + 1;
-    const r2 = Math.floor(this.next() * 6) + 1;
+    let r1: number, r2: number;
+    let physical = false;
+    if (this.physicalRollQueue.length >= 2) {
+      r1 = this.physicalRollQueue.shift()!;
+      r2 = this.physicalRollQueue.shift()!;
+      physical = true;
+    } else {
+      r1 = Math.floor(this.next() * 6) + 1;
+      r2 = Math.floor(this.next() * 6) + 1;
+    }
     const total = r1 + r2;
     this.pushHistory({
       step: this.step - 2,
-      type: "2d6",
+      type: physical ? "2d6-physical" : "2d6",
       label,
       result: [r1, r2],
     });

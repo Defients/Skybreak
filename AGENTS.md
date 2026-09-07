@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **752 tests / 24 files**, jsdom, ~37s)
+- Test: `npm test` (vitest run, **757 tests / 24 files**, jsdom, ~38s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -23,7 +23,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
     data: 9.22 KB, game-engine: 22.00 KB, CSS: 19.01 KB
 - Lazy-loaded chunks: CombatView (12.65 KB gz), MerchantView (11.88 KB gz),
   StrategyLabScreen (127.82 KB gz), WikiScreen (66.42 KB gz), others < 12 KB gz
-- Tests: 752/752 pass (24 files), ~37s total
+- Tests: 757/757 pass (24 files), ~38s total
 
 ## Asset Optimization (Phase 6a — completed)
 - All 166 PNGs converted to WebP (quality 80) via ffmpeg.
@@ -38,7 +38,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 ## Structural Decomposition Findings (SA-12, deferred)
 - Largest files: MerchantView.tsx (82 KB), monsterAbilityEngine.ts (71 KB),
   CombatView.tsx (71 KB), heroAbilityEngine.ts (66 KB), StrategyLabScreen.tsx (62 KB).
-- 752 tests now protect behavior across all paths, making decomposition safe.
+- 757 tests now protect behavior across all paths, making decomposition safe.
 - RECOMMENDATION: Split per-class hero/monster ability resolvers into
   separate files, extract MerchantView/CombatView sub-components. Deferred
   to user direction — no behavior change, pure maintainability improvement.
@@ -127,16 +127,20 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   - For non-damage events with structured `details`, shows key/value pairs.
   - Derives explanations from actual `GameEvent` data — no invented narration.
 
-## Future Work (requires user input or separate scope)
-- **Physical Table Bridge**: Real cards/dice while the app tracks party and explains outcomes.
-  Requires an explicit physical-input protocol — not merely forcing RNG values.
-  Do not implement without a design pass on the input/verification flow.
-- **Asset optimization**: ~90 MB of monster portrait PNGs + ~20 MB audio.
-  WebP/128kbps re-encoding would roughly halve total size, but requires
-  visual/audio quality review before batch conversion.
-- **Full content-ID migration**: Re-keying `ITEMS` by `itemId`, making
-  `ItemInstance.itemId` required, replacing display-name engine/UI lookups.
-  Requires save migration and broad compatibility testing. Deferred.
-  Phase 6b made incremental progress: `resolveItemData()` helper added,
-  CombatView/GameDashboard/merchantEngine/saveLoad/tagMatchers now prefer
-  `itemId` with name fallback. `itemId` remains optional.
+## Physical Table Bridge (Phase 6c)
+- **Physical input protocol**: When `rngMode === "physical"` in `SimulationConfig`:
+  - `RngEngine.setPhysicalRolls(values)` queues physical die results consumed FIFO by `rollD6`/`roll2D6`.
+  - `RngEngine.setPhysicalCards(cards)` sets cards for the next `flipPeonCards` call.
+  - `rng.consumePhysicalCards()` returns and clears the override.
+  - `rng.clearPhysicalOverrides()` clears both queues.
+  - No engine function signatures changed — overrides are consumed transparently.
+- **Store methods**: `doHeroActionPhysical(heroId, action, targetId, cards, rolls)` and
+  `doMonsterTurnPhysical(cards, rolls)` set overrides, call the normal action, then clear.
+- **UI**: `PhysicalInputPanel` (`src/components/combat/PhysicalInputPanel.tsx`) shows in
+  CombatView when physical mode is on. Player enters 2 card suits/ranks + 1 d6 roll.
+  "Use RNG" fallback button skips physical input.
+- **Design principle**: Physical inputs replace RNG at the injection point — the engine
+  still runs synchronously through the canonical terminal path (`checkCombatEnd`).
+  Secondary rolls (freeze, trap, dodge, etc.) use seeded RNG unless explicitly queued.
+- **Future extension**: Monster turn physical input, APC assignment from physical deck,
+  environment card from physical deck, multi-roll queueing for secondary checks.

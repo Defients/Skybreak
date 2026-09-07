@@ -25,6 +25,7 @@ import { PetIcon } from "../ui/PetIcon";
 import { formatLogSummary, getEventTypeStyle } from "../../utils/logFormatter";
 import { formatAbilityText } from "../../utils/formatAbilityText";
 import { ExplainTurnIcon } from "../combat/ExplainTurn";
+import { PhysicalInputPanel } from "../combat/PhysicalInputPanel";
 import { resolveItemData } from "../../data/items";
 import { suitSymbol, isRedSuit, getApcColors, APC_COLORS } from "../../types/cards";
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
@@ -228,6 +229,8 @@ interface Props {
 export function CombatView({ onBack }: Props) {
   const state = useGameStore((s) => s.state);
   const doHeroAction = useGameStore((s) => s.doHeroAction);
+  const doHeroActionPhysical = useGameStore((s) => s.doHeroActionPhysical);
+  const doMonsterTurnPhysical = useGameStore((s) => s.doMonsterTurnPhysical);
   const doEndTurn = useGameStore((s) => s.doEndTurn);
   const doUseItem = useGameStore((s) => s.doUseItem);
   const doResolveRoom = useGameStore((s) => s.doResolveRoom);
@@ -280,6 +283,7 @@ export function CombatView({ onBack }: Props) {
   const isHybridMode = state?.settings.mode === "hybrid";
   const isSandboxMode = state?.settings.mode === "sandbox";
   const isSimulationMode = state?.settings.mode === "simulation";
+  const isPhysicalMode = state?.settings.rngMode === "physical";
   const aiControlledHeroes = useHybridStore((s) => s.aiControlledHeroes);
   const toggleHeroAI = useHybridStore((s) => s.toggleHeroAI);
 
@@ -946,7 +950,20 @@ export function CombatView({ onBack }: Props) {
                   <span className="font-medium">💡 AI Suggests:</span> {companionSuggestion.reason}
                 </div>
               )}
-              {canAct && (
+              {canAct && isPhysicalMode && (
+                <PhysicalInputPanel
+                  actorName={hero.name}
+                  onSubmit={(cards, rolls) => {
+                    playSfx("combat", "attack");
+                    doHeroActionPhysical(hero.id, "attack", monster.id, cards, rolls);
+                  }}
+                  onSkip={() => {
+                    playSfx("combat", "attack");
+                    doHeroAction(hero.id, "attack", monster.id);
+                  }}
+                />
+              )}
+              {canAct && !isPhysicalMode && (
                 <div className="flex gap-2 items-stretch">
                   <button
                     className={`btn-primary text-xs px-3 flex-shrink-0 ${

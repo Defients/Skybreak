@@ -54,7 +54,7 @@ export interface GameEvent {
 
 export interface RandomEvent {
   step: number;
-  type: "d6" | "2d6" | "shuffle" | "draw" | "chooseRandom" | "assignD6";
+  type: "d6" | "d6-physical" | "2d6" | "2d6-physical" | "shuffle" | "draw" | "chooseRandom" | "assignD6";
   label: string;
   result: unknown;
 }
