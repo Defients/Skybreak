@@ -844,4 +844,39 @@ describe("Megaplan Phase 6c — Physical Table Bridge", () => {
     expect(cards[1].rank).toBe("3");
     rng.clearPhysicalOverrides();
   });
+
+  it("FM#14: physical rolls are consumed FIFO and history records physical type", () => {
+    const rng = new RngEngine("physical-history");
+    rng.setPhysicalRolls([6, 3]);
+    rng.rollD6("first");
+    rng.rollD6("second");
+    const history = rng.historyLog;
+    const physicalEvents = history.filter(e => e.type === "d6-physical");
+    expect(physicalEvents.length).toBe(2);
+    expect(physicalEvents[0].result).toBe(6);
+    expect(physicalEvents[1].result).toBe(3);
+    rng.clearPhysicalOverrides();
+  });
+
+  it("FM#14: roll2D6 consumes two physical rolls when available", () => {
+    const rng = new RngEngine("physical-2d6-fifo");
+    rng.setPhysicalRolls([4, 2, 6]);
+    const r1 = rng.roll2D6("first-2d6");
+    expect(r1.rolls).toEqual([4, 2]);
+    expect(r1.total).toBe(6);
+    // One physical roll left; roll2D6 should fall back to seeded for the second die
+    const r2 = rng.rollD6("leftover");
+    expect(r2.total).toBe(6);
+    rng.clearPhysicalOverrides();
+  });
+
+  it("FM#14: hasPhysicalRolls reflects queue state without consuming", () => {
+    const rng = new RngEngine("physical-peek");
+    expect(rng.hasPhysicalRolls).toBe(false);
+    rng.setPhysicalRolls([1]);
+    expect(rng.hasPhysicalRolls).toBe(true);
+    rng.rollD6("consume");
+    expect(rng.hasPhysicalRolls).toBe(false);
+    rng.clearPhysicalOverrides();
+  });
 });

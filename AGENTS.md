@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **757 tests / 24 files**, jsdom, ~38s)
+- Test: `npm test` (vitest run, **760 tests / 24 files**, jsdom, ~34s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -23,7 +23,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
     data: 9.22 KB, game-engine: 22.00 KB, CSS: 19.01 KB
 - Lazy-loaded chunks: CombatView (12.65 KB gz), MerchantView (11.88 KB gz),
   StrategyLabScreen (127.82 KB gz), WikiScreen (66.42 KB gz), others < 12 KB gz
-- Tests: 757/757 pass (24 files), ~38s total
+- Tests: 760/760 pass (24 files), ~34s total
 
 ## Asset Optimization (Phase 6a — completed)
 - All 166 PNGs converted to WebP (quality 80) via ffmpeg.
@@ -48,7 +48,7 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   - `src/components/combat/CombatWidgets.tsx` (199 lines) — `colorizeHeads`, `colorizeApc`,
     `ItemDropdown`, `CombatLogTooltip`, `ItemEntry` interface
 - All extractions are pure structural refactors — no behavior change.
-- 757 tests protect all paths; full suite passes after decomposition.
+- 760 tests protect all paths; full suite passes after decomposition.
 
 ## Architecture (verified at HEAD 7fad9ef)
 - `src/engine/` — pure engine layer (GameState in → GameState out).
@@ -145,9 +145,9 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   `doMonsterTurnPhysical(cards, rolls)` set overrides, call the normal action, then clear.
 - **UI**: `PhysicalInputPanel` (`src/components/combat/PhysicalInputPanel.tsx`) shows in
   CombatView when physical mode is on. Player enters 2 card suits/ranks + 1 d6 roll.
-  "Use RNG" fallback button skips physical input.
+  "Use RNG" fallback button skips physical input. Shows for both hero and monster turns.
 - **Design principle**: Physical inputs replace RNG at the injection point — the engine
   still runs synchronously through the canonical terminal path (`checkCombatEnd`).
   Secondary rolls (freeze, trap, dodge, etc.) use seeded RNG unless explicitly queued.
-- **Future extension**: Monster turn physical input, APC assignment from physical deck,
+- **Future extension**: APC assignment from physical deck,
   environment card from physical deck, multi-roll queueing for secondary checks.

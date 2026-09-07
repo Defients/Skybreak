@@ -76,6 +76,10 @@ function scheduleMonsterTurn(delay = 800): void {
   const store = useGameStore;
   const existing = store.getState().monsterTurnTimer;
   if (existing) clearTimeout(existing);
+  // Physical Table Bridge: in physical mode, don't auto-schedule the monster
+  // turn — the player will enter physical inputs via doMonsterTurnPhysical.
+  const currentState = store.getState().state;
+  if (currentState?.settings.rngMode === "physical") return;
   const epoch = store.getState().sessionEpoch;
   const timer = setTimeout(() => {
     // Stale-timer guard: if the session advanced, this callback belongs to a

@@ -49,6 +49,7 @@ export function CombatView({ onBack }: Props) {
   const doHeroAction = useGameStore((s) => s.doHeroAction);
   const doHeroActionPhysical = useGameStore((s) => s.doHeroActionPhysical);
   const doMonsterTurnPhysical = useGameStore((s) => s.doMonsterTurnPhysical);
+  const doMonsterTurn = useGameStore((s) => s.doMonsterTurn);
   const doEndTurn = useGameStore((s) => s.doEndTurn);
   const doUseItem = useGameStore((s) => s.doUseItem);
   const doResolveRoom = useGameStore((s) => s.doResolveRoom);
@@ -1028,9 +1029,25 @@ export function CombatView({ onBack }: Props) {
             )}</span>
           </div>
 
-          {combat.activeSide === "monster" && !isCombatOver && (
+          {combat.activeSide === "monster" && !isCombatOver && !isPhysicalMode && (
             <div className="mt-3 text-sm text-spire-warning animate-pulse">
               ⚙️ Monster is taking its turn...
+            </div>
+          )}
+
+          {combat.activeSide === "monster" && !isCombatOver && isPhysicalMode && (
+            <div className="mt-3">
+              <PhysicalInputPanel
+                actorName={monster.name}
+                onSubmit={(cards, rolls) => {
+                  playSfx("combat", "attack");
+                  doMonsterTurnPhysical(cards, rolls);
+                }}
+                onSkip={() => {
+                  playSfx("combat", "attack");
+                  doMonsterTurn();
+                }}
+              />
             </div>
           )}
 
