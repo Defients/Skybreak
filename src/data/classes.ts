@@ -90,7 +90,7 @@ export const CLASS_DATA: Record<HeroClassName, ClassData> = {
       { roll: 5, effect: "Power Shot", description: "Deal 5 damage to target", effectKey: "power_shot" },
       { roll: 6, effect: "Rapid Fire", description: "Source rule incomplete. Default ruling: deal 2 damage twice, same or split target", effectKey: "rapid_fire" },
     ],
-    uniqueMechanic: "Pets act immediately after Tracker. Roll d6 on pet table. Pets have 5 HP. Pets persist until killed. If Tracker dies, pet fights until end of combat, then disappears.",
+    uniqueMechanic: "Pets act immediately after Tracker. Roll d6 on pet table. Wolf has 7 HP, Bear has 5 HP. Pets persist until killed. If Tracker dies, pet fights until end of combat, then disappears.",
     abilityTrigger: "⚛️ Triggers on class-card match, once per combat unless otherwise specified",
   },
 

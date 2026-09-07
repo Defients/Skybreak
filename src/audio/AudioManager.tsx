@@ -13,44 +13,54 @@ import {
 } from "../assets/assetRegistry";
 import { AudioCtx } from "./AudioContext";
 
-const MUTE_KEY = "skyward_muted";
-const MUSIC_MUTE_KEY = "skyward_music_muted";
-const SFX_MUTE_KEY = "skyward_sfx_muted";
-const VOLUME_KEY = "skyward_volume";
+const MUTE_KEY = "skybreak_muted";
+const MUSIC_MUTE_KEY = "skybreak_music_muted";
+const SFX_MUTE_KEY = "skybreak_sfx_muted";
+const VOLUME_KEY = "skybreak_volume";
+
+// Legacy keys from the pre-rename "Skyward Ascent" build. We read from
+// these as a fallback so existing user preferences are not lost.
+const LEGACY_MUTE_KEY = "skyward_muted";
+const LEGACY_MUSIC_MUTE_KEY = "skyward_music_muted";
+const LEGACY_SFX_MUTE_KEY = "skyward_sfx_muted";
+const LEGACY_VOLUME_KEY = "skyward_volume";
+
+/**
+ * Read a preference from localStorage, falling back to the legacy
+ * skyward_-prefixed key if the skybreak_ key is not set. Migrates
+ * the value to the new key so the fallback is only needed once.
+ */
+function migratePref(newKey: string, legacyKey: string): string | null {
+  try {
+    const value = localStorage.getItem(newKey);
+    if (value !== null) return value;
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      localStorage.setItem(newKey, legacy);
+    }
+    return legacy;
+  } catch {
+    return null;
+  }
+}
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const musicRef = useRef<HTMLAudioElement | null>(null);
   const currentTrackRef = useRef<string | null>(null);
   const activeSfxRef = useRef<Set<HTMLAudioElement>>(new Set());
   const [isMuted, setIsMuted] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(MUTE_KEY) === "true";
-    } catch {
-      return false;
-    }
+    return migratePref(MUTE_KEY, LEGACY_MUTE_KEY) === "true";
   });
   const [isMusicMuted, setIsMusicMuted] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(MUSIC_MUTE_KEY) === "true";
-    } catch {
-      return false;
-    }
+    return migratePref(MUSIC_MUTE_KEY, LEGACY_MUSIC_MUTE_KEY) === "true";
   });
   const [isSfxMuted, setIsSfxMuted] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SFX_MUTE_KEY) === "true";
-    } catch {
-      return false;
-    }
+    return migratePref(SFX_MUTE_KEY, LEGACY_SFX_MUTE_KEY) === "true";
   });
   const [isReady, setIsReady] = useState(false);
   const [volume, setVolumeState] = useState<number>(() => {
-    try {
-      const stored = localStorage.getItem(VOLUME_KEY);
-      return stored !== null ? parseFloat(stored) : 0.35;
-    } catch {
-      return 0.35;
-    }
+    const stored = migratePref(VOLUME_KEY, LEGACY_VOLUME_KEY);
+    return stored !== null ? parseFloat(stored) : 0.35;
   });
   const userInteractedRef = useRef(false);
   const fadeRafRef = useRef<number | null>(null);

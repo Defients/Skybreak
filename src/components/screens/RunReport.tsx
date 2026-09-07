@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { GameState } from "../../types/gameState";
 import { calculateScore } from "../../engine/progressionEngine";
 import { getLivingHeroes } from "../../engine/rulesEngine";
 import { useAudio } from "../../audio/useAudio";
+import { buildRunCapsule, copyCapsuleToClipboard } from "../../engine/runCapsule";
 import {
   getVictoryBackground,
   getDefeatBackground,
@@ -31,6 +32,7 @@ export function RunReport({ state, onHome }: Props) {
   const score = calculateScore(state);
   const livingHeroes = getLivingHeroes(state);
   const { playMusic, playSfx } = useAudio();
+  const [capsuleCopied, setCapsuleCopied] = useState(false);
 
   const mvpHero = state.stats.mvpHeroId ? state.party.heroes.find(h => h.id === state.stats.mvpHeroId) : null;
   const bgUrl = isVictory ? getVictoryBackground() : getDefeatBackground();
@@ -404,7 +406,24 @@ export function RunReport({ state, onHome }: Props) {
         </div>
       </div>
 
-      <div className="flex justify-center pb-4">
+      <div className="flex flex-col items-center gap-3 pb-4">
+        <div className="flex gap-3">
+          <button
+            className="px-5 py-2.5 rounded-lg text-sm font-medium border border-spire-border/40 text-spire-muted hover:border-spire-accent/40 hover:bg-spire-accent/10 transition-all duration-200"
+            onClick={async () => {
+              playSfx("ui", "button_click");
+              const capsule = buildRunCapsule(state);
+              const ok = await copyCapsuleToClipboard(capsule);
+              if (ok) {
+                setCapsuleCopied(true);
+                setTimeout(() => setCapsuleCopied(false), 3000);
+              }
+            }}
+            title="Copy a compact reproduction packet (seed, party, difficulty) to clipboard"
+          >
+            {capsuleCopied ? "✓ Capsule Copied!" : "📋 Copy Ascent Capsule"}
+          </button>
+        </div>
         <button
           className="btn-gold text-lg px-10 py-3.5"
           style={{

@@ -226,7 +226,7 @@ export const STRATEGY_SECTIONS: StrategySection[] = [
       {
         type: "list",
         items: [
-          "Huntmaster (Black): Apply Target token (+1 damage taken) to enemy and summon a Wolf pet (5 HP). Wolf acts after you each turn. Target token amplifies ALL party damage against that enemy.",
+          "Huntmaster (Black): Apply Target token (+1 damage taken) to enemy and summon a Wolf pet (7 HP). Wolf acts after you each turn. Target token amplifies ALL party damage against that enemy.",
           "Beastcaller (Red): Summon a Bear pet (5 HP) and gain Focus buff (+2 to rolls, 2 uses). Bear provides shields to position 1 ally via Swipe. Focus buff is extremely strong for burst windows.",
         ],
       },
@@ -236,7 +236,7 @@ export const STRATEGY_SECTIONS: StrategySection[] = [
       },
       {
         type: "paragraph",
-        text: "Pets roll on their own d6 table and act immediately after the Tracker. Pets persist until killed. If the Tracker dies, the pet fights until end of combat, then disappears. Pets have 5 HP and can be targeted by monsters.",
+        text: "Pets roll on their own d6 table and act immediately after the Tracker. Pets persist until killed. If the Tracker dies, the pet fights until end of combat, then disappears. Wolf has 7 HP, Bear has 5 HP, and both can be targeted by monsters.",
       },
       {
         type: "heading",

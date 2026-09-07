@@ -41,11 +41,39 @@ const SUITS: { suit: Suit; label: string; symbol: string; color: string }[] = [
 const DIFFICULTIES: Difficulty[] = ["easy", "normal", "hard", "nightmare"];
 const MODES: GameMode[] = ["playable", "simulation", "companion", "hybrid", "sandbox"];
 
-const DIFFICULTY_INFO: Record<Difficulty, { icon: string; desc: string; color: string }> = {
-  easy: { icon: "🌱", desc: "Enemies have reduced HP and deal less damage. Forgiving for learning the ropes.", color: "text-green-400" },
+// Preference keys (migrated from skyward_ to skybreak_ prefix).
+const BETA_DISMISSED_KEY = "skybreak_beta_dismissed";
+const STRATEGY_HINT_DISMISSED_KEY = "skybreak_strategy_hint_dismissed";
+const LEGACY_BETA_DISMISSED_KEY = "skyward_beta_dismissed";
+const LEGACY_STRATEGY_HINT_DISMISSED_KEY = "skyward_strategy_hint_dismissed";
+
+function prefGet(newKey: string, legacyKey: string): string | null {
+  try {
+    const value = localStorage.getItem(newKey);
+    if (value !== null) return value;
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      localStorage.setItem(newKey, legacy);
+    }
+    return legacy;
+  } catch {
+    return null;
+  }
+}
+
+function prefSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+export const DIFFICULTY_INFO: Record<Difficulty, { icon: string; desc: string; color: string }> = {
+  easy: { icon: "🌱", desc: "150g start, +2 HP, revival -50%, monsters -2 HP. Forgiving for learning the ropes.", color: "text-green-400" },
   normal: { icon: "⚔️", desc: "Balanced experience. Enemies use full stats as written in the ruleset.", color: "text-spire-white" },
-  hard: { icon: "🔥", desc: "Enemies gain +20% HP and +1 damage. Elite rooms are more frequent.", color: "text-orange-400" },
-  nightmare: { icon: "💀", desc: "Enemies gain +40% HP, +2 damage, and act with tactical AI. Only for the brave.", color: "text-red-400" },
+  hard: { icon: "🔥", desc: "80g start, no Welcome weapons, monsters +1 to rolls, permanent death.", color: "text-orange-400" },
+  nightmare: { icon: "💀", desc: "40g start, monster tier bonuses, items +50%, lose 25% gold on death, 40-turn limit vs Vyridian. Only for the brave.", color: "text-red-400" },
 };
 
 const MODE_INFO: Record<GameMode, { icon: string; desc: string; color: string }> = {
@@ -113,7 +141,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
   }, [playMusic]);
 
   useEffect(() => {
-    if (localStorage.getItem("skyward_beta_dismissed")) return;
+    if (prefGet(BETA_DISMISSED_KEY, LEGACY_BETA_DISMISSED_KEY)) return;
     const timer = setTimeout(() => setShowBetaNotice(true), 4000);
     return () => clearTimeout(timer);
   }, []);
@@ -284,7 +312,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
                 }}
                 onClick={() => {
                   playSfx("ui", "menu_open");
-                  if (!localStorage.getItem("skyward_strategy_hint_dismissed")) {
+                  if (!prefGet(STRATEGY_HINT_DISMISSED_KEY, LEGACY_STRATEGY_HINT_DISMISSED_KEY)) {
                     setShowStrategyHint(true);
                   } else {
                     setShowSetup(true);
@@ -403,7 +431,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => { localStorage.setItem("skyward_beta_dismissed", "1"); setShowBetaNotice(false); }}
+            onClick={() => { prefSet(BETA_DISMISSED_KEY, "1"); setShowBetaNotice(false); }}
           />
           <div className="relative glass-panel rounded-2xl border border-amber-500/40 shadow-panel p-5 sm:p-7 max-w-md w-full mx-2 space-y-4"
             style={{ boxShadow: "0 0 40px rgba(245, 158, 11, 0.15), 0 8px 32px rgba(0, 0, 0, 0.6)" }}
@@ -421,7 +449,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
             <div className="flex justify-end">
               <button
                 className="px-5 py-2 rounded-lg text-sm font-medium bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 hover:border-amber-400/60 transition-colors"
-                onClick={() => { localStorage.setItem("skyward_beta_dismissed", "1"); setShowBetaNotice(false); }}
+                onClick={() => { prefSet(BETA_DISMISSED_KEY, "1"); setShowBetaNotice(false); }}
               >
                 Got it
               </button>
@@ -461,7 +489,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
                 className="px-5 py-2.5 rounded-lg text-sm font-medium bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/30 hover:border-cyan-400/60 transition-colors"
                 onClick={() => {
                   setShowStrategyHint(false);
-                  localStorage.setItem("skyward_strategy_hint_dismissed", "1");
+                  prefSet(STRATEGY_HINT_DISMISSED_KEY, "1");
                   onNavigate?.("wiki-strategy");
                 }}
               >
@@ -475,9 +503,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
                 defaultChecked={false}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    localStorage.setItem("skyward_strategy_hint_dismissed", "1");
+                    prefSet(STRATEGY_HINT_DISMISSED_KEY, "1");
                   } else {
-                    localStorage.removeItem("skyward_strategy_hint_dismissed");
+                    try { localStorage.removeItem(STRATEGY_HINT_DISMISSED_KEY); } catch { /* ignore */ }
                   }
                 }}
               />

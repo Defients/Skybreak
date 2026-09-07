@@ -31,6 +31,15 @@ import {
 import { randomParty, runSingleGame } from "../engine/batchSimulationEngine";
 import { useGameStore } from "../app/gameStore";
 import { useBatchStore } from "../app/batchStore";
+import { CLASS_DATA } from "../data/classes";
+import { STRATEGY_SECTIONS } from "../data/strategyGuide";
+import { DIFFICULTY_INFO } from "../components/screens/HomeScreen";
+import {
+  buildRunCapsule,
+  serializeCapsule,
+  parseCapsule,
+  isValidCapsule,
+} from "../engine/runCapsule";
 import type { GameState } from "../types/gameState";
 import type { BatchConfig } from "../types/batch";
 
@@ -424,5 +433,123 @@ describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
     // completed all 100 runs. Currently it runs all 100.
     expect(result).not.toBeNull();
     expect(result!.runs.length).toBeLessThan(100);
+  });
+});
+
+// ============================================================
+// Phase 3 — Outstanding discrepancy resolution fixtures
+// (B10 wolf HP, HomeScreen difficulty descriptions)
+// ============================================================
+
+describe("Megaplan Phase 3 — Discrepancy resolution fixtures", () => {
+  // ─── B10: Wolf HP documentation matches engine ─────────────────
+
+  it("B10: class description documents Wolf as 7 HP and Bear as 5 HP (matching engine)", () => {
+    // The engine summons Wolf with 7 HP and Bear with 5 HP. The class
+    // description and strategy guide must match the engine, not the
+    // old "Pets have 5 HP" blanket statement.
+    const trackerData = CLASS_DATA["Tracker"];
+    expect(trackerData.uniqueMechanic).toContain("Wolf has 7 HP");
+    expect(trackerData.uniqueMechanic).toContain("Bear has 5 HP");
+    // The old blanket statement should be gone.
+    expect(trackerData.uniqueMechanic).not.toContain("Pets have 5 HP");
+  });
+
+  it("B10: strategy guide documents Wolf as 7 HP (matching engine)", () => {
+    // The strategy guide spec descriptions should match the engine.
+    const guideText = JSON.stringify(STRATEGY_SECTIONS);
+    expect(guideText).toContain("Wolf pet (7 HP)");
+    expect(guideText).toContain("Bear pet (5 HP)");
+  });
+
+  // ─── Difficulty descriptions match engine/rules ────────────────
+
+  it("HomeScreen difficulty descriptions match the authoritative rules text", () => {
+    // The HomeScreen DIFFICULTY_INFO blurbs should match the rules
+    // documents (rulesIndex, strategyGuide), not stale marketing text.
+    // Easy: 150g start, +2 HP, revival -50%, monsters -2 HP
+    expect(DIFFICULTY_INFO.easy.desc).toContain("150g");
+    expect(DIFFICULTY_INFO.easy.desc).toContain("-2 HP");
+    expect(DIFFICULTY_INFO.easy.desc).not.toContain("deal less damage");
+    // Hard: 80g start, monsters +1 to rolls, permanent death
+    expect(DIFFICULTY_INFO.hard.desc).toContain("80g");
+    expect(DIFFICULTY_INFO.hard.desc).toContain("+1 to rolls");
+    expect(DIFFICULTY_INFO.hard.desc).not.toContain("+20% HP");
+    expect(DIFFICULTY_INFO.hard.desc).not.toContain("Elite rooms");
+    // Nightmare: 40g start, tier bonuses, 40-turn limit
+    expect(DIFFICULTY_INFO.nightmare.desc).toContain("40g");
+    expect(DIFFICULTY_INFO.nightmare.desc).toContain("40-turn");
+    expect(DIFFICULTY_INFO.nightmare.desc).not.toContain("+40% HP");
+  });
+});
+
+// ============================================================
+// Phase 3 — Ascent Capsules (reproduction packet export)
+// ============================================================
+
+describe("Megaplan Phase 3 — Ascent Capsules", () => {
+  // ─── Capsule build/serialize/parse round-trip ────────────────
+
+  it("FM#9: buildRunCapsule captures seed, difficulty, mode, and party composition", () => {
+    const config = createDefaultConfig({
+      mode: "playable",
+      difficulty: "normal",
+      seed: "capsule-test-seed",
+    });
+    const party: PartySetupChoice[] = [
+      { className: "Bladedancer", suit: "hearts", position: 1 },
+      { className: "Guardian", suit: "clubs", position: 2 },
+      { className: "Tracker", suit: "spades", position: 3 },
+    ];
+    const state = initializeGame(config, party);
+
+    const capsule = buildRunCapsule(state);
+
+    expect(capsule.v).toBe(1);
+    expect(capsule.type).toBe("skybreak-capsule");
+    expect(capsule.seed).toBe("capsule-test-seed");
+    expect(capsule.difficulty).toBe("normal");
+    expect(capsule.mode).toBe("playable");
+    expect(capsule.party).toHaveLength(3);
+    expect(capsule.party[0].className).toBe("Bladedancer");
+    expect(capsule.party[1].className).toBe("Guardian");
+    expect(capsule.party[2].className).toBe("Tracker");
+  });
+
+  it("FM#9: serializeCapsule → parseCapsule round-trips correctly", () => {
+    const config = createDefaultConfig({ seed: "capsule-rt-seed" });
+    const party: PartySetupChoice[] = [
+      { className: "Bladedancer", suit: "hearts", position: 1 },
+      { className: "Guardian", suit: "clubs", position: 2 },
+      { className: "Tracker", suit: "spades", position: 3 },
+    ];
+    const state = initializeGame(config, party);
+    const capsule = buildRunCapsule(state);
+    const serialized = serializeCapsule(capsule);
+    const parsed = parseCapsule(serialized);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.seed).toBe("capsule-rt-seed");
+    expect(parsed!.party).toHaveLength(3);
+    expect(parsed!.v).toBe(1);
+  });
+
+  it("FM#9: parseCapsule rejects invalid input", () => {
+    expect(parseCapsule("not json")).toBeNull();
+    expect(parseCapsule('{"foo":1}')).toBeNull();
+    expect(parseCapsule('{"v":99,"type":"skybreak-capsule","seed":"x","difficulty":"easy","mode":"playable","party":[],"createdAt":"x"}')).toBeNull();
+  });
+
+  it("FM#9: isValidCapsule rejects wrong version", () => {
+    const bad = {
+      v: 999,
+      type: "skybreak-capsule",
+      seed: "x",
+      difficulty: "easy",
+      mode: "playable",
+      party: [],
+      createdAt: "x",
+    };
+    expect(isValidCapsule(bad)).toBe(false);
   });
 });

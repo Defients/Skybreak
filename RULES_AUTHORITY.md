@@ -23,21 +23,16 @@ Baseline pinned at HEAD `80540bc94bc621f014accbaddbe318b7fac7523f`
 | Aspect | Value | Source | Status |
 |---|---|---|---|
 | Engine summon HP | `currentHp: 7, maxHp: 7` | `src/engine/heroAbilityEngine.ts:1159-1160` | implemented |
-| Class description | "Pets have 5 HP" | `src/data/classes.ts:93` | intended |
-| Bear (Beastcaller) engine HP | `currentHp: 5, maxHp: 5` | `src/engine/heroAbilityEngine.ts:1173-1174` | implemented (matches 5 HP rule) |
+| Class description | "Wolf has 7 HP, Bear has 5 HP" | `src/data/classes.ts:93` | implemented (resolved) |
+| Bear (Beastcaller) engine HP | `currentHp: 5, maxHp: 5` | `src/engine/heroAbilityEngine.ts:1173-1174` | implemented |
+| Strategy guide | "Wolf pet (7 HP)", "Bear pet (5 HP)" | `src/data/strategyGuide.ts:229-230,239` | implemented (resolved) |
 
-**Discrepancy:** The Wolf is summoned with **7 HP** in the engine, while the
-class description and the general pet rule state pets have **5 HP**. The Bear
-(Tracker's red specialization) correctly uses 5 HP. This is an asymmetric
-inconsistency: either the Wolf is intentionally tougher (and the rule text is
-wrong), or the Wolf HP is a bug (and the engine should say 5).
-
-**Decision required:** Is the Wolf's 7 HP an intentional balance choice or a bug?
-- If intentional → update `classes.ts` and the rulebooks to state Wolf = 7 HP
-  (and document why the Wolf is the exception to the 5 HP pet rule).
-- If a bug → change `heroAbilityEngine.ts:1159-1160` to `5`.
-Either way, the fix is a single documented edit; do **not** mix it into an
-infrastructure PR. Record the decision here before changing code.
+**Decision (resolved):** The Wolf's 7 HP is an **intentional balance choice**.
+The Wolf is the higher-damage/self-healing pet (Bite 2/3/4 + Alpha Strike heals
+Tracker 2 HP), while the Bear has 5 HP + shield support + Focus buff. The 7 HP
+offsets the Bear's defensive utility. The engine value (7 HP) was kept as the
+authority; the class description and strategy guide were updated to match.
+Resolved in Phase 3 commit.
 
 ---
 
@@ -97,21 +92,13 @@ Elite rooms; neither is implemented. The rules document instead says "monsters
 uses a flat `+3*effectiveTier + 2*tier` formula. The rules document says "monster
 tier bonuses," which is the accurate description.
 
-### Decision required (difficulty)
+### Decision (resolved)
 
-The **rules documents are the correct authority** for difficulty formulas; the
-**HomeScreen `DIFFICULTY_INFO` blurbs are stale/aspirational marketing text**.
-Two options:
-
-1. **Fix the text to match the engine** (recommended, low risk): rewrite
-   `HomeScreen.tsx:44-48` `DIFFICULTY_INFO` to mirror the rules-document
-   descriptions. No engine change.
-2. **Implement the claimed mechanics** (high risk, balance-impacting): add easy
-   damage reduction, hard +20% HP, hard elite-frequency scaling, nightmare +40%
-   HP. This changes balance and seeded outcomes and must be versioned.
-
-Do **not** do option 2 inside the reliability work. If pursued, it is a separate
-balance decision with its own reproduction-version boundary.
+The **rules documents are the correct authority** for difficulty formulas.
+**Option 1 was chosen**: the HomeScreen `DIFFICULTY_INFO` blurbs were rewritten
+to match the rules-document descriptions (`rulesIndex.ts:162`,
+`strategyGuide.ts:810-813`). No engine balance changes were made. Resolved in
+Phase 3 commit.
 
 ---
 
@@ -122,8 +109,8 @@ balance decision with its own reproduction-version boundary.
 | Combat math, APC, matches, dice | Engine (implemented) | `src/engine/` |
 | Room sequence 10/12/10 | Engine + `src/data/rooms.ts` (implemented) | do not randomize by default |
 | Difficulty formulas | Rules documents (`rulesIndex`, `strategyGuide`) ≈ engine | `src/data/` |
-| Difficulty setup blurbs | HomeScreen (DIVERGENT — see §2) | `src/components/screens/HomeScreen.tsx` |
-| Pet HP | Class description says 5 HP; engine Wolf = 7 (DIVERGENT — see §1) | `src/data/classes.ts`, `src/engine/heroAbilityEngine.ts` |
+| Difficulty setup blurbs | HomeScreen (resolved — matches rules docs) | `src/components/screens/HomeScreen.tsx` |
+| Pet HP | Wolf = 7 HP, Bear = 5 HP (resolved — docs match engine) | `src/data/classes.ts`, `src/engine/heroAbilityEngine.ts` |
 | Canon / setting | `Skybreak-Canon_Bible.md` | project root |
 | Card game rules | `Skybreak-CardGame-Rules.md`, `Skybreak-OfficialRules.md` | project root |
 

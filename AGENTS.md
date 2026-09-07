@@ -2,7 +2,7 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **731 tests / 24 files**, jsdom, ~37s)
+- Test: `npm test` (vitest run, **738 tests / 24 files**, jsdom, ~40s)
 - Typecheck: `npx tsc -b --noEmit`
 - Build: `npm run build` (tsc -b && vite build, ~26s)
 - Dev: `npm run dev`
@@ -94,3 +94,11 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
 - ~~`runBatch`/`runStrategyLab` not cancellable~~ — RESOLVED (Phase 2: both accept `isCancelled` callback; stores wire `cancelRequested`).
 - ~~Strategy Lab uses independent seeds per combo~~ — RESOLVED (Phase 2: `sharedCohort` option replays same seed across combos for comparable results).
 - ~~`startCombat` clears the event log~~ — RESOLVED (Phase 2: log is now preserved across combat; welcome bonus and room events survive).
+- ~~Wolf HP discrepancy (engine 7 vs rules 5)~~ — RESOLVED (Phase 3: 7 HP is intentional balance; docs updated to match engine).
+- ~~HomeScreen difficulty descriptions diverge from engine~~ — RESOLVED (Phase 3: blurbs rewritten to match authoritative rules text).
+- ~~Incomplete rename: `skyward_` preference keys in HomeScreen and AudioManager~~ — RESOLVED (Phase 3: migrated to `skybreak_` with legacy fallback).
+
+## Ascent Capsules (Phase 3)
+- `src/engine/runCapsule.ts` — versioned reproduction packet (`RunCapsule` type, `buildRunCapsule`, `serializeCapsule`, `parseCapsule`, `copyCapsuleToClipboard`).
+- `RunReport.tsx` — "Copy Ascent Capsule" button copies seed/party/difficulty/outcome to clipboard.
+- Capsules capture starting conditions for replay/sharing; they are NOT save files.
