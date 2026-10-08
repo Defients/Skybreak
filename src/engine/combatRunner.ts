@@ -25,7 +25,7 @@ import { executeMonsterTurn } from "./monsterAbilityEngine";
 import { aiPlayHeroTurn, executeAiHeroDecision } from "./aiController";
 import { checkCombatEnd } from "./combatEngine";
 import { emitEvent } from "./eventLog";
-import { getItemUsageThreshold } from "./batchSimulationEngine";
+import { getItemUsageThreshold } from "./simPolicies";
 import { RngEngine } from "../utils/random";
 
 export interface CombatRunnerConfig {

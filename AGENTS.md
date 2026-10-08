@@ -152,3 +152,32 @@ React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + re
   Secondary rolls (freeze, trap, dodge, etc.) use seeded RNG unless explicitly queued.
 - **Future extension**: APC assignment from physical deck,
   environment card from physical deck, multi-roll queueing for secondary checks.
+
+## Stage 3 — Simulation & Experiment Infrastructure (completed)
+- `src/engine/simRunner.ts` — canonical worker-safe run executor (`executeRun`). Honest
+  `ExecutionStatus` (completed/invalid/error/timeout/cancelled/interrupted); only
+  `completed` carries a gameplay `outcome`. Per-run reset of event sequence + id
+  counter; per-run `defeatedBy`. Cooperative cancel via `isCancelled`.
+- `src/engine/experimentSpec.ts` — seed protocol v2 (`base|v2|batch|i`,
+  `…|cohort|i` shared across combos, `…|ind|comboId|i`), `comboToId` (canonical
+  6-axis key), `configFingerprint` (fnv1a over stableStringify), `ENGINE_FINGERPRINT`.
+- `src/workers/simulation.worker.ts` — bundled via `?worker` import (NOT
+  `new Worker(new URL())` — hoisted URLs inline unbundled source, breaking
+  imports at runtime). Pool with respawn + bounded retry in `experimentRunner.ts`.
+- `src/app/experimentRunner.ts` — coordinator: worker pool + inline fallback,
+  incremental flush (every 25 records), cancel/pause, fingerprint-checked resume.
+- `src/persistence/experimentDb.ts` — `ExperimentStore`; IndexedDB
+  (`skybreak-experiments`, stores `experiments` + `runs`) with
+  `MemoryExperimentStore` fallback. Duplicate-safe writes by `runId`.
+- `src/engine/statistics.ts` — `wilsonInterval`, `summarize`, `evidenceTier`,
+  `aggregateRuns` (failures excluded from denominators), `pairedCompare`.
+- `src/engine/telemetry.ts` — per-hero (`HeroRunRecord`) + encounter records;
+  persistent accumulators on `RunStats` survive the 500-event log bound.
+- `src/engine/evidenceExport.ts` — versioned `skybreak-evidence` export packages.
+- `src/components/experiment/ExperimentHistoryPanel.tsx` — shared history UI.
+- Fixed: biased random-party suit mapping (now uniform 1/4), dead `itemsUsed`
+  stat, run-state leakage, technical failures counted as defeats.
+- Tests: `stage3Outcomes.test.ts` (23), `stage3Coordinator.test.ts` (8),
+  `stage3Perf.test.ts` (2 benchmarks), `e2e/stage3Experiments.spec.ts` (4).
+- Measured: ~24–28 runs/sec inline (jsdom), ~88 runs/sec via worker pool in
+  browser (60 runs / 678ms). See STAGE3_REPORT.md for the full ledger.

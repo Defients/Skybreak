@@ -8,17 +8,13 @@ import type {
   ScoreBreakdown,
   LabProgress,
 } from "../types/strategyLab";
-import type { BatchConfig, RunResult, AggregateStats } from "../types/batch";
+import type { RunResult, AggregateStats } from "../types/batch";
 import type { HeroClassName } from "../types/heroes";
 import { ALL_CLASSES } from "../data/classes";
-import { runSingleGame } from "./batchSimulationEngine";
+import { executeRun } from "./simRunner";
+import { batchPolicy, deriveRunSeed, comboToId } from "./experimentSpec";
+import { aggregateRuns, wilsonInterval } from "./statistics";
 import { generateSeed } from "../utils/ids";
-
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  });
-}
 
 export function generateCrossProduct(axes: StrategyLabAxes): StrategyCombo[] {
   const results: StrategyCombo[] = [];
@@ -44,9 +40,21 @@ export function generateCrossProduct(axes: StrategyLabAxes): StrategyCombo[] {
     }
   }
 
-  return results;
+  // Deduplicate — identical canonical identities must not produce two
+  // "distinct" combos in one experiment.
+  const seen = new Set<string>();
+  return results.filter((c) => {
+    const id = comboToId(c);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
+/**
+ * Human-friendly label — omits default-valued axes. NOT a stable identity:
+ * two different combos can produce identical labels. Use comboToId() as key.
+ */
 export function comboToLabel(combo: StrategyCombo): string {
   const parts: string[] = [];
   parts.push(combo.combatStrategy);
@@ -58,101 +66,72 @@ export function comboToLabel(combo: StrategyCombo): string {
   return parts.join(" + ");
 }
 
-function comboToBatchConfig(combo: StrategyCombo, labConfig: StrategyLabConfig): BatchConfig {
-  return {
-    runs: labConfig.runsPerCombo,
-    difficulty: labConfig.difficulty,
-    partyMode: labConfig.partyMode,
-    partyChoices: labConfig.partyChoices,
-    combatStrategy: combo.combatStrategy,
-    merchantStrategy: combo.merchantStrategy,
-    restStrategy: combo.restStrategy,
-    splitStrategy: combo.splitStrategy,
-    itemUsageStrategy: combo.itemUsageStrategy,
-    weaponUpgradeStrategy: combo.weaponUpgradeStrategy,
-    baseSeed: labConfig.baseSeed,
-  };
-}
-
-function aggregateCombo(runs: RunResult[]): AggregateStats {
-  const totalRuns = runs.length;
-  const victories = runs.filter((r) => r.outcome === "victory").length;
-  const defeats = runs.filter((r) => r.outcome === "defeat").length;
-
-  const scores = runs.map((r) => r.score.finalScore);
-  const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-  const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
-  const minScore = scores.length > 0 ? Math.min(...scores) : 0;
-
-  const avgTurns = runs.length > 0 ? Math.round(runs.reduce((a, r) => a + r.totalTurns, 0) / runs.length) : 0;
-  const avgRoomsCleared = runs.length > 0 ? Math.round(runs.reduce((a, r) => a + r.roomsCleared, 0) / runs.length) : 0;
-  const avgHeroesAlive = runs.length > 0 ? parseFloat((runs.reduce((a, r) => a + r.heroesAlive, 0) / runs.length).toFixed(1)) : 0;
-
-  const buckets = [
-    { range: "0-4999", min: 0, max: 4999 },
-    { range: "5k-9k", min: 5000, max: 9999 },
-    { range: "10k-14k", min: 10000, max: 14999 },
-    { range: "15k-19k", min: 15000, max: 19999 },
-    { range: "20k-24k", min: 20000, max: 24999 },
-    { range: "25k-29k", min: 25000, max: 29999 },
-    { range: "30k+", min: 30000, max: Infinity },
-  ];
-  const scoreDistribution = buckets.map((b) => ({
-    range: b.range,
-    count: scores.filter((s) => s >= b.min && s <= b.max).length,
-  }));
-
-  return {
-    totalRuns,
-    victories,
-    defeats,
-    retreats: 0,
-    victoryRate: totalRuns > 0 ? Math.round((victories / totalRuns) * 100) : 0,
-    avgScore,
-    maxScore,
-    minScore,
-    avgTurns,
-    avgRoomsCleared,
-    avgHeroesAlive,
-    scoreDistribution,
-    outcomeByDifficulty: {},
-  };
-}
-
-function computeClassPerformance(runs: RunResult[]): ClassPerformance[] {
-  const classMap = new Map<HeroClassName, { appearances: number; victories: number; totalScore: number; totalSurvival: number }>();
+/**
+ * Class performance with GENUINE per-hero attribution.
+ * Party-level win association AND individual hero survival/damage are
+ * reported separately — never conflated.
+ */
+export function computeClassPerformance(runs: RunResult[]): ClassPerformance[] {
+  const map = new Map<HeroClassName, {
+    appearances: number;
+    victories: number;
+    totalScore: number;
+    totalSurvival: number;
+    heroAppearances: number;
+    heroSurvivals: number;
+    damageDealt: number;
+    damageReceived: number;
+  }>();
 
   for (const cls of ALL_CLASSES) {
-    classMap.set(cls, { appearances: 0, victories: 0, totalScore: 0, totalSurvival: 0 });
+    map.set(cls, { appearances: 0, victories: 0, totalScore: 0, totalSurvival: 0, heroAppearances: 0, heroSurvivals: 0, damageDealt: 0, damageReceived: 0 });
   }
 
   for (const run of runs) {
+    if (run.status !== "completed") continue;
     const isVictory = run.outcome === "victory";
     for (const member of run.partyComposition) {
-      const entry = classMap.get(member.className);
+      const entry = map.get(member.className);
       if (!entry) continue;
       entry.appearances++;
       if (isVictory) entry.victories++;
-      entry.totalScore += run.score.finalScore;
-      entry.totalSurvival += run.heroesAlive;
+      entry.totalScore += run.score?.finalScore ?? 0;
+      entry.totalSurvival += run.heroesAlive ?? 0;
+    }
+    for (const hero of run.heroes ?? []) {
+      const entry = map.get(hero.className as HeroClassName);
+      if (!entry) continue;
+      entry.heroAppearances++;
+      if (hero.alive) entry.heroSurvivals++;
+      entry.damageDealt += hero.damageDealt;
+      entry.damageReceived += hero.damageReceived;
     }
   }
 
   return ALL_CLASSES.map((cls) => {
-    const entry = classMap.get(cls)!;
+    const entry = map.get(cls)!;
     return {
       className: cls,
       appearances: entry.appearances,
       victories: entry.victories,
       winRate: entry.appearances > 0 ? Math.round((entry.victories / entry.appearances) * 100) : 0,
+      winRateCI: wilsonInterval(entry.victories, entry.appearances),
       avgScore: entry.appearances > 0 ? Math.round(entry.totalScore / entry.appearances) : 0,
+      individualSurvivalRate: entry.heroAppearances > 0
+        ? parseFloat((entry.heroSurvivals / entry.heroAppearances).toFixed(3))
+        : undefined,
+      heroAppearances: entry.heroAppearances,
+      heroSurvivals: entry.heroSurvivals,
+      avgDamageDealt: entry.heroAppearances > 0 ? Math.round(entry.damageDealt / entry.heroAppearances) : undefined,
+      avgDamageReceived: entry.heroAppearances > 0 ? Math.round(entry.damageReceived / entry.heroAppearances) : undefined,
       avgSurvival: entry.appearances > 0 ? parseFloat((entry.totalSurvival / entry.appearances).toFixed(1)) : 0,
     };
   });
 }
 
 function computeScoreBreakdown(runs: RunResult[]): ScoreBreakdown {
-  if (runs.length === 0) {
+  const valid = runs.filter((r) => r.status === "completed" && r.score);
+  if (valid.length === 0) {
     return {
       baseScore: 0,
       heroesAliveBonus: 0,
@@ -164,20 +143,20 @@ function computeScoreBreakdown(runs: RunResult[]): ScoreBreakdown {
     };
   }
 
-  const sum = runs.reduce(
+  const sum = valid.reduce(
     (acc, r) => ({
-      baseScore: acc.baseScore + r.score.baseScore,
-      heroesAliveBonus: acc.heroesAliveBonus + r.score.heroesAliveBonus,
-      goldBonus: acc.goldBonus + r.score.goldBonus,
-      tier3Bonus: acc.tier3Bonus + r.score.tier3Bonus,
-      turnPenalty: acc.turnPenalty + r.score.turnPenalty,
-      itemBonus: acc.itemBonus + r.score.itemBonus,
-      perfectCombatBonus: acc.perfectCombatBonus + r.score.perfectCombatBonus,
+      baseScore: acc.baseScore + r.score!.baseScore,
+      heroesAliveBonus: acc.heroesAliveBonus + r.score!.heroesAliveBonus,
+      goldBonus: acc.goldBonus + r.score!.goldBonus,
+      tier3Bonus: acc.tier3Bonus + r.score!.tier3Bonus,
+      turnPenalty: acc.turnPenalty + r.score!.turnPenalty,
+      itemBonus: acc.itemBonus + r.score!.itemBonus,
+      perfectCombatBonus: acc.perfectCombatBonus + r.score!.perfectCombatBonus,
     }),
     { baseScore: 0, heroesAliveBonus: 0, goldBonus: 0, tier3Bonus: 0, turnPenalty: 0, itemBonus: 0, perfectCombatBonus: 0 }
   );
 
-  const n = runs.length;
+  const n = valid.length;
   return {
     baseScore: Math.round(sum.baseScore / n),
     heroesAliveBonus: Math.round(sum.heroesAliveBonus / n),
@@ -190,13 +169,19 @@ function computeScoreBreakdown(runs: RunResult[]): ScoreBreakdown {
 }
 
 function computeVariance(runs: RunResult[]): { variance: number; stdDev: number } {
-  if (runs.length === 0) return { variance: 0, stdDev: 0 };
-  const scores = runs.map((r) => r.score.finalScore);
+  const valid = runs.filter((r) => r.status === "completed" && r.score);
+  if (valid.length < 2) return { variance: 0, stdDev: 0 };
+  const scores = valid.map((r) => r.score!.finalScore);
   const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const variance = scores.reduce((acc, s) => acc + (s - mean) ** 2, 0) / scores.length;
+  // Sample variance (n-1)
+  const variance = scores.reduce((acc, s) => acc + (s - mean) ** 2, 0) / (scores.length - 1);
   return { variance: Math.round(variance), stdDev: Math.round(Math.sqrt(variance)) };
 }
 
+/**
+ * In-process sequential lab execution (no workers, no persistence).
+ * New callers should use the ExperimentRunner coordinator.
+ */
 export async function runStrategyLab(
   config: StrategyLabConfig,
   onProgress?: (progress: LabProgress, currentResult?: RunResult) => void,
@@ -206,14 +191,12 @@ export async function runStrategyLab(
   const combos = generateCrossProduct(config.axes);
   const comboResults: ComboResult[] = [];
 
-  await nextPaint();
-
   for (let ci = 0; ci < combos.length; ci++) {
     if (isCancelled?.()) break;
 
     const combo = combos[ci];
+    const comboId = comboToId(combo);
     const comboLabel = comboToLabel(combo);
-    const batchConfig = comboToBatchConfig(combo, config);
     const runs: RunResult[] = [];
 
     for (let ri = 0; ri < config.runsPerCombo; ri++) {
@@ -227,12 +210,36 @@ export async function runStrategyLab(
           comboLabel,
         });
       }
-      await nextPaint();
 
-      const seed = config.sharedCohort
-        ? `${config.baseSeed}_COHORT_R${ri}`
-        : `${config.baseSeed}_LAB_${ci}_R${ri}`;
-      const result = await runSingleGame(ri, seed, batchConfig);
+      const seed = deriveRunSeed(config.baseSeed, config.sharedCohort ? "cohort" : "ind", ri, comboId);
+      const result = await executeRun(
+        {
+          runId: `lab:${comboId}:${ri}`,
+          comboIndex: ci,
+          comboId,
+          cohortIndex: ri,
+          runIndex: ri,
+          seed,
+          policy: {
+            ...batchPolicy({
+              runs: config.runsPerCombo,
+              difficulty: config.difficulty,
+              partyMode: config.partyMode,
+              partyChoices: config.partyChoices,
+              combatStrategy: combo.combatStrategy,
+              merchantStrategy: combo.merchantStrategy,
+              restStrategy: combo.restStrategy,
+              splitStrategy: combo.splitStrategy,
+              itemUsageStrategy: combo.itemUsageStrategy,
+              weaponUpgradeStrategy: combo.weaponUpgradeStrategy,
+              baseSeed: config.baseSeed,
+            }),
+          },
+          telemetryLevel: config.telemetryLevel ?? "standard",
+        },
+        { isCancelled }
+      );
+      if (result.status === "cancelled") break;
       runs.push(result);
 
       if (onProgress) {
@@ -249,20 +256,16 @@ export async function runStrategyLab(
       }
     }
 
-    const aggregate = aggregateCombo(runs);
-    const classPerformance = computeClassPerformance(runs);
-    const avgScoreBreakdown = computeScoreBreakdown(runs);
-    const { variance: scoreVariance, stdDev: scoreStdDev } = computeVariance(runs);
-
     comboResults.push({
       combo,
+      comboId,
       comboLabel,
       runs,
-      aggregate,
-      classPerformance,
-      avgScoreBreakdown,
-      scoreVariance,
-      scoreStdDev,
+      aggregate: aggregateRuns(runs),
+      classPerformance: computeClassPerformance(runs),
+      avgScoreBreakdown: computeScoreBreakdown(runs),
+      scoreVariance: computeVariance(runs).variance,
+      scoreStdDev: computeVariance(runs).stdDev,
     });
   }
 
@@ -319,14 +322,18 @@ export function downloadLabJSON(result: StrategyLabResult): void {
 export function downloadLabCSV(result: StrategyLabResult): void {
   const headers = [
     "Combo",
+    "Combo ID",
     "Combat",
     "Merchant",
     "Rest",
     "Split",
     "Item Usage",
     "Weapon Upgrade",
-    "Runs",
+    "Valid Runs",
+    "Excluded Runs",
     "Victory Rate",
+    "Win Rate CI Low",
+    "Win Rate CI High",
     "Avg Score",
     "Max Score",
     "Min Score",
@@ -337,14 +344,18 @@ export function downloadLabCSV(result: StrategyLabResult): void {
   ];
   const rows = result.combos.map((cr) => [
     cr.comboLabel,
+    cr.comboId,
     cr.combo.combatStrategy,
     cr.combo.merchantStrategy,
     cr.combo.restStrategy,
     cr.combo.splitStrategy,
     cr.combo.itemUsageStrategy,
     cr.combo.weaponUpgradeStrategy,
-    cr.aggregate.totalRuns,
+    cr.aggregate.validRuns,
+    cr.aggregate.totalRuns - cr.aggregate.validRuns,
     cr.aggregate.victoryRate,
+    cr.aggregate.victoryRateCI ? (cr.aggregate.victoryRateCI.low * 100).toFixed(1) : "",
+    cr.aggregate.victoryRateCI ? (cr.aggregate.victoryRateCI.high * 100).toFixed(1) : "",
     cr.aggregate.avgScore,
     cr.aggregate.maxScore,
     cr.aggregate.minScore,
@@ -371,6 +382,7 @@ export function defaultLabConfig(): StrategyLabConfig {
     partyMode: "random",
     partyChoices: undefined,
     baseSeed: generateSeed(),
+    telemetryLevel: "standard",
     axes: {
       combat: ["aggressive", "defensive", "balanced", "survivalist", "random-legal"],
       merchant: ["balanced"],

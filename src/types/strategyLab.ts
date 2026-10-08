@@ -13,6 +13,7 @@ import type {
   WeaponUpgradeStrategy,
 } from "./batch";
 import type { RunResult, AggregateStats } from "./batch";
+import type { TelemetryLevel } from "./experiment";
 
 export interface StrategyLabAxes {
   combat: CombatStrategy[];
@@ -34,6 +35,10 @@ export interface StrategyLabConfig {
    *  (same seed) so differences are attributable to strategy, not RNG.
    *  When false (default), each combo gets its own derived seed. */
   sharedCohort?: boolean;
+  /** Telemetry collection level. Defaults to "standard". */
+  telemetryLevel?: TelemetryLevel;
+  /** Optional human-readable experiment name. */
+  name?: string;
 }
 
 export interface StrategyCombo {
@@ -47,10 +52,24 @@ export interface StrategyCombo {
 
 export interface ClassPerformance {
   className: HeroClassName;
+  /** Runs containing at least one hero of this class (party-level exposure). */
   appearances: number;
+  /** Party victories in those runs — association, NOT causation. */
   victories: number;
   winRate: number;
+  /** Wilson 95% CI for the party-association win rate (0..1 fractions). */
+  winRateCI?: { low: number; high: number };
   avgScore: number;
+  /**
+   * Individual hero survival: fraction of hero-appearances where THAT hero
+   * finished alive. Replaces the old party-level avgSurvival misattribution.
+   */
+  individualSurvivalRate?: number;
+  heroAppearances?: number;
+  heroSurvivals?: number;
+  avgDamageDealt?: number;
+  avgDamageReceived?: number;
+  /** @deprecated party-level heroesAlive average; kept for compatibility. */
   avgSurvival: number;
 }
 
@@ -66,6 +85,9 @@ export interface ScoreBreakdown {
 
 export interface ComboResult {
   combo: StrategyCombo;
+  /** Canonical identity over all six axes — stable primary key. */
+  comboId: string;
+  /** Human-friendly label (may omit defaults — NOT a key). */
   comboLabel: string;
   runs: RunResult[];
   aggregate: AggregateStats;

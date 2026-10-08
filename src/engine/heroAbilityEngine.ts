@@ -1046,7 +1046,13 @@ export function useItem(
         : h
     );
     const sharedInventory = s.party.sharedInventory.map(i => i.id === itemId ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0);
-    return { ...s, party: { ...s.party, heroes, sharedInventory } };
+    const itemsUsedByHero = { ...s.stats.itemsUsedByHero };
+    itemsUsedByHero[heroId] = (itemsUsedByHero[heroId] ?? 0) + 1;
+    return {
+      ...s,
+      party: { ...s.party, heroes, sharedInventory },
+      stats: { ...s.stats, itemsUsed: s.stats.itemsUsed + 1, itemsUsedByHero },
+    };
   }
 
   if (itemHasTag(item, "minor_potion")) {

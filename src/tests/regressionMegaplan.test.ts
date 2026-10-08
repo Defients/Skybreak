@@ -399,7 +399,7 @@ describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
     // A welcome bonus resolution should produce at least one DICE_ROLLED event
     // with "Welcome Bonus" in the description, and the party should have
     // weapons beyond just the starting common weapon (or bonus gold).
-    const hasWelcomeBonusEvent = result.combatLog.some(
+    const hasWelcomeBonusEvent = (result.combatLog ?? []).some(
       (e) => e.type === "DICE_ROLLED" && String(e.summary).includes("Welcome Bonus")
     );
     expect(hasWelcomeBonusEvent).toBe(true);
@@ -417,7 +417,7 @@ describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
     // After a full run, at least one of these should be populated (MVP is set
     // if any hero dealt damage; deadliestMonster is set if any monster dealt
     // damage). Both are undefined when finalizeRunStats is never called.
-    const hasMvpOrDeadliest = result.stats.mvpHeroId !== undefined || result.stats.deadliestMonster !== undefined;
+    const hasMvpOrDeadliest = result.stats?.mvpHeroId !== undefined || result.stats?.deadliestMonster !== undefined;
     expect(hasMvpOrDeadliest).toBe(true);
   });
 

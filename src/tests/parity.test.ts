@@ -127,7 +127,7 @@ describe("SA-4 Deterministic Cross-Path Parity", () => {
         const result1 = await runSingleGame(0, seed, cfg);
         const result2 = await runSingleGame(0, seed, cfg);
         expect(result1.outcome).toBe(result2.outcome);
-        expect(result1.score.finalScore).toBe(result2.score.finalScore);
+        expect(result1.score?.finalScore).toBe(result2.score?.finalScore);
         expect(result1.totalTurns).toBe(result2.totalTurns);
         expect(result1.roomsCleared).toBe(result2.roomsCleared);
         expect(result1.heroesAlive).toBe(result2.heroesAlive);

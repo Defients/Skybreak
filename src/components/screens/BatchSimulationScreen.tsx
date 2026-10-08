@@ -22,6 +22,8 @@ import type { PartySetupChoice } from "../../engine/gameState";
 import { generateSeed } from "../../utils/ids";
 import { getGoldCoinImage } from "../../assets/assetRegistry";
 import { Tooltip } from "../ui/Tooltip";
+import type { TelemetryLevel } from "../../types/experiment";
+import { ExperimentHistoryPanel } from "../experiment/ExperimentHistoryPanel";
 import {
   formatLogSummaryWithNames,
   buildNameMapFromPartyChoices,
@@ -386,19 +388,36 @@ export function BatchSimulationScreen({ onBack }: Props) {
     config,
     result,
     isRunning,
+    isPaused,
     progress,
     currentRunLog,
     currentRunSummary,
+    storageWarning,
+    experimentStatus,
+    throughput,
+    history,
+    historyLoaded,
     setConfig,
     startBatch,
     resetBatch,
     doDownloadJSON,
     doDownloadCSV,
     cancelBatch,
+    pauseBatch,
+    loadHistory,
+    openExperiment,
+    resumeExperiment,
+    deleteExperiment,
+    exportEvidence,
   } = useBatchStore();
 
   const { playSfx } = useAudio();
   const { isMobile } = useIsMobile();
+
+  useEffect(() => {
+    void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [partyMode, setPartyMode] = useState<PartyMode>(config.partyMode);
   const [selections, setSelections] = useState<(HeroClassName | null)[]>([null, null, null]);
@@ -434,7 +453,11 @@ export function BatchSimulationScreen({ onBack }: Props) {
         currentRunLog={currentRunLog}
         currentRunSummary={currentRunSummary}
         nameMap={runNameMap}
+        isPaused={isPaused}
+        storageWarning={storageWarning}
+        throughput={throughput}
         onCancel={cancelBatch}
+        onPause={pauseBatch}
       />
     );
   }
@@ -443,9 +466,14 @@ export function BatchSimulationScreen({ onBack }: Props) {
     return (
       <ResultsView
         result={result}
+        experimentStatus={experimentStatus}
+        experimentId={useBatchStore.getState().experimentId}
+        storageWarning={storageWarning}
+        onResume={resumeExperiment}
         onBack={onBack}
         onDownloadJSON={doDownloadJSON}
         onDownloadCSV={doDownloadCSV}
+        onExportEvidence={exportEvidence}
         onRunAnother={() => {
           playSfx("ui", "button_click");
           resetBatch();
@@ -513,6 +541,37 @@ export function BatchSimulationScreen({ onBack }: Props) {
                 🎲
               </button>
             </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm text-spire-muted mb-1.5">Experiment Name</label>
+            <input
+              className="input w-full"
+              placeholder="(optional)"
+              value={config.name ?? ""}
+              onChange={(e) => setConfig({ name: e.target.value || undefined })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-spire-muted mb-1.5 flex items-center gap-1.5">
+              Telemetry Level
+              <Tooltip
+                content={<span className="text-xs text-spire-muted">How much per-run data is retained. "Standard" keeps a bounded log; "detailed" keeps the full event log for diagnostics.</span>}
+                side="top"
+              >
+                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-spire-border/40 text-[10px] text-spire-muted cursor-help">?</span>
+              </Tooltip>
+            </label>
+            <select
+              className="input w-full"
+              value={config.telemetryLevel ?? "standard"}
+              onChange={(e) => setConfig({ telemetryLevel: e.target.value as TelemetryLevel })}
+            >
+              <option value="minimal">Minimal — outcomes only</option>
+              <option value="standard">Standard — bounded log</option>
+              <option value="deep">Deep — full event log</option>
+            </select>
           </div>
         </div>
       </div>
@@ -709,6 +768,16 @@ export function BatchSimulationScreen({ onBack }: Props) {
           {partyMode === "fixed" && !partyValid ? "Select all heroes" : `▶️ Run ${config.runs} Simulation${config.runs > 1 ? "s" : ""}`}
         </button>
       </div>
+
+      {/* Experiment History */}
+      {historyLoaded && history.length > 0 && (
+        <ExperimentHistoryPanel
+          experiments={history}
+          onOpen={(id) => { playSfx("ui", "button_click"); void openExperiment(id); }}
+          onResume={(id) => { playSfx("ui", "button_click"); void resumeExperiment(id); }}
+          onDelete={(id) => { void deleteExperiment(id); }}
+        />
+      )}
     </div>
   );
 }
@@ -1043,22 +1112,40 @@ function RunningView({
   currentRunLog,
   currentRunSummary,
   nameMap,
+  isPaused,
+  storageWarning,
+  throughput,
   onCancel,
+  onPause,
 }: {
-  progress: { completed: number; total: number };
+  progress: { completed: number; total: number; persisted: number };
   currentRunLog: GameEvent[];
   currentRunSummary: string;
   nameMap: Map<string, NameEntry>;
+  isPaused?: boolean;
+  storageWarning?: string | null;
+  throughput?: number;
   onCancel?: () => void;
+  onPause?: () => void;
 }) {
   const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="text-center space-y-2">
-        <h2 className="text-3xl font-display gold-text">Running Batch Simulation...</h2>
-        <p className="text-spire-muted text-sm">Running games headlessly. This may take a moment.</p>
+        <h2 className="text-3xl font-display gold-text">{isPaused ? "Batch Simulation Paused" : "Running Batch Simulation..."}</h2>
+        <p className="text-spire-muted text-sm">
+          {isPaused
+            ? "Simulation paused. Completed runs are committed to durable storage and can be resumed later."
+            : "Running games in background workers. Completed runs are committed incrementally."}
+        </p>
       </div>
+
+      {storageWarning && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg">
+          <div className="text-xs text-amber-200/90">⚠️ {storageWarning}</div>
+        </div>
+      )}
 
       <div className="glass-card p-6 space-y-4">
         <div className="flex items-center justify-between text-sm">
@@ -1071,16 +1158,32 @@ function RunningView({
             style={{ width: `${pct}%` }}
           />
         </div>
+        <div className="flex items-center justify-between text-[11px] text-spire-muted/70">
+          <span>{progress.persisted} committed to storage</span>
+          {throughput !== undefined && throughput > 0 && (
+            <span className="tabular-nums">{throughput.toFixed(1)} runs/s</span>
+          )}
+        </div>
         <div className="flex items-center justify-between gap-4">
           <div className="text-xs text-spire-muted">{currentRunSummary}</div>
-          {onCancel && (
-            <button
-              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-red-400/40 text-red-300 hover:bg-red-500/10 transition-all duration-200"
-              onClick={onCancel}
-            >
-              Cancel
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {onPause && !isPaused && (
+              <button
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-300/40 text-amber-300 hover:bg-amber-500/10 transition-all duration-200"
+                onClick={onPause}
+              >
+                Pause
+              </button>
+            )}
+            {onCancel && (
+              <button
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-red-400/40 text-red-300 hover:bg-red-500/10 transition-all duration-200"
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1104,21 +1207,34 @@ function RunningView({
 
 function ResultsView({
   result,
+  experimentStatus,
+  experimentId,
+  storageWarning,
+  onResume,
   onBack,
   onDownloadJSON,
   onDownloadCSV,
+  onExportEvidence,
   onRunAnother,
 }: {
   result: BatchResult;
+  experimentStatus?: string | null;
+  experimentId?: string | null;
+  storageWarning?: string | null;
+  onResume?: (id: string) => void;
   onBack: () => void;
   onDownloadJSON: () => void;
   onDownloadCSV: () => void;
+  onExportEvidence?: () => void;
   onRunAnother: () => void;
 }) {
   const { playSfx } = useAudio();
   const stats = result.aggregateStats;
   const [selectedRun, setSelectedRun] = useState<number | null>(null);
-  const bestRunIndex = result.runs.reduce((best, r) => r.score.finalScore > best.score.finalScore ? r : best, result.runs[0]).runIndex;
+  const completedRuns = result.runs.filter(r => r.status === "completed");
+  const bestRunIndex = completedRuns.length > 0
+    ? completedRuns.reduce((best, r) => (r.score?.finalScore ?? -1) > (best.score?.finalScore ?? -1) ? r : best, completedRuns[0]).runIndex
+    : -1;
 
   // Sorting state for per-run table
   type SortKey = "runIndex" | "seed" | "outcome" | "score" | "totalTurns" | "roomsCleared" | "heroesAlive" | "party";
@@ -1143,11 +1259,11 @@ function ResultsView({
       switch (sortKey) {
         case "runIndex": cmp = a.runIndex - b.runIndex; break;
         case "seed": cmp = a.seed.localeCompare(b.seed); break;
-        case "outcome": cmp = a.outcome.localeCompare(b.outcome); break;
-        case "score": cmp = a.score.finalScore - b.score.finalScore; break;
-        case "totalTurns": cmp = a.totalTurns - b.totalTurns; break;
-        case "roomsCleared": cmp = a.roomsCleared - b.roomsCleared; break;
-        case "heroesAlive": cmp = a.heroesAlive - b.heroesAlive; break;
+        case "outcome": cmp = (a.outcome ?? a.status).localeCompare(b.outcome ?? b.status); break;
+        case "score": cmp = (a.score?.finalScore ?? -1) - (b.score?.finalScore ?? -1); break;
+        case "totalTurns": cmp = (a.totalTurns ?? -1) - (b.totalTurns ?? -1); break;
+        case "roomsCleared": cmp = (a.roomsCleared ?? -1) - (b.roomsCleared ?? -1); break;
+        case "heroesAlive": cmp = (a.heroesAlive ?? -1) - (b.heroesAlive ?? -1); break;
         case "party": cmp = a.partyComposition.map(p => p.className).join("+").localeCompare(b.partyComposition.map(p => p.className).join("+")); break;
       }
       return cmp * dir;
@@ -1168,15 +1284,62 @@ function ResultsView({
         </div>
       </div>
 
+      {experimentStatus && experimentStatus !== "completed" && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs text-amber-200/90">
+            ⚠️ This experiment is <span className="font-semibold">{experimentStatus}</span> — the
+            statistics below reflect partial evidence ({stats.validRuns} valid run
+            {stats.validRuns === 1 ? "" : "s"} recorded so far). Do not treat them as final.
+          </div>
+          {onResume && experimentId && (
+            <button
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-spire-accent/40 text-spire-accent hover:bg-spire-accent/10 transition-all duration-200"
+              onClick={() => { playSfx("ui", "button_click"); onResume(experimentId); }}
+            >
+              ▶ Resume Experiment
+            </button>
+          )}
+        </div>
+      )}
+      {storageWarning && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg">
+          <div className="text-xs text-amber-200/90">⚠️ {storageWarning}</div>
+        </div>
+      )}
+
       {/* Aggregate Stats */}
       <div className="glass-card p-6">
-        <h3 className="section-heading mb-4">Aggregate Statistics</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="section-heading">Aggregate Statistics</h3>
+          <EvidenceTierBadge tier={stats.evidenceTier} validRuns={stats.validRuns} />
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-          <StatBox label="Victory Rate" value={`${stats.victoryRate}%`} sub={`${stats.victories}W / ${stats.defeats}L`} />
-          <StatBox label="Avg Score" value={stats.avgScore} sub={`Max: ${stats.maxScore}`} />
+          <StatBox
+            label="Victory Rate"
+            value={`${stats.victoryRate}%`}
+            sub={
+              stats.victoryRateCI
+                ? `${stats.victories}W / ${stats.defeats}L · 95% CI [${(stats.victoryRateCI.low * 100).toFixed(0)}–${(stats.victoryRateCI.high * 100).toFixed(0)}%]`
+                : `${stats.victories}W / ${stats.defeats}L`
+            }
+          />
+          <StatBox label="Avg Score" value={stats.avgScore} sub={stats.scoreStdDev !== undefined ? `σ ${stats.scoreStdDev} · Max ${stats.maxScore}` : `Max: ${stats.maxScore}`} />
           <StatBox label="Avg Turns" value={stats.avgTurns} sub={`Min: ${stats.minScore}`} />
           <StatBox label="Avg Rooms" value={stats.avgRoomsCleared} sub={`Avg Heroes: ${stats.avgHeroesAlive}`} />
         </div>
+        {(stats.errorRuns + stats.timeoutRuns + stats.invalidRuns + stats.cancelledRuns + stats.interruptedRuns) > 0 && (
+          <div className="mt-4 text-xs text-spire-muted/80 border-t border-spire-border/20 pt-3">
+            Excluded from gameplay statistics:{" "}
+            {[
+              stats.errorRuns > 0 && `${stats.errorRuns} error`,
+              stats.timeoutRuns > 0 && `${stats.timeoutRuns} timeout`,
+              stats.invalidRuns > 0 && `${stats.invalidRuns} invalid`,
+              stats.cancelledRuns > 0 && `${stats.cancelledRuns} cancelled`,
+              stats.interruptedRuns > 0 && `${stats.interruptedRuns} interrupted`,
+            ].filter(Boolean).join(" · ")}
+            {" "}— technical failures are not counted as defeats.
+          </div>
+        )}
       </div>
 
       {/* Score Distribution */}
@@ -1239,18 +1402,24 @@ function ResultsView({
                     {run.runIndex + 1}
                   </td>
                   <td className="py-2 px-2 text-spire-muted text-xs">{run.seed}</td>
-                  <td className="py-2 px-2" title={run.outcome === "defeat" && run.defeatedBy ? `Wiped to: ${run.defeatedBy}` : undefined}>
-                    <span className={run.outcome === "victory" ? "text-spire-success" : "text-spire-danger"}>
-                      {run.outcome === "victory" ? "🏆 Win" : "💀 Loss"}
-                    </span>
-                    {run.outcome === "defeat" && run.defeatedBy && (
-                      <span className="block text-[10px] text-spire-muted/70 mt-0.5">vs {run.defeatedBy}</span>
+                  <td className="py-2 px-2" title={run.diagnostics?.errorMessage ?? (run.outcome === "defeat" && run.defeatedBy ? `Wiped to: ${run.defeatedBy}` : undefined)}>
+                    {run.status === "completed" ? (
+                      <>
+                        <span className={run.outcome === "victory" ? "text-spire-success" : "text-spire-danger"}>
+                          {run.outcome === "victory" ? "🏆 Win" : run.outcome === "retreat" ? "🏳 Retreat" : "💀 Loss"}
+                        </span>
+                        {run.outcome === "defeat" && run.defeatedBy && (
+                          <span className="block text-[10px] text-spire-muted/70 mt-0.5">vs {run.defeatedBy}</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-amber-400">⚠ {run.status}</span>
                     )}
                   </td>
-                  <td className="py-2 px-2 text-right text-spire-gold font-medium">{run.score.finalScore}</td>
-                  <td className="py-2 px-2 text-right text-spire-white">{run.totalTurns}</td>
-                  <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared}</td>
-                  <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive}</td>
+                  <td className="py-2 px-2 text-right text-spire-gold font-medium">{run.score?.finalScore ?? "—"}</td>
+                  <td className="py-2 px-2 text-right text-spire-white">{run.totalTurns ?? "—"}</td>
+                  <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared ?? "—"}</td>
+                  <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive ?? "—"}</td>
                   <td className="py-2 px-2 text-xs text-spire-muted">
                     {run.partyComposition.map(p => `${p.className} (${p.specialization})`).join(" + ")}
                   </td>
@@ -1260,29 +1429,97 @@ function ResultsView({
           </table>
         </div>
 
-        {selectedRun !== null && (
-          <CombatLogViewer
-            events={result.runs[selectedRun].combatLog}
-            runIndex={selectedRun}
-            partyComposition={result.runs[selectedRun].partyComposition}
-            outcome={result.runs[selectedRun].outcome}
-          />
-        )}
+        {selectedRun !== null && (() => {
+          const run = result.runs.find((r) => r.runIndex === selectedRun);
+          if (!run) return null;
+          return (
+            <>
+              <div className="mt-4 bg-spire-bg/40 rounded-lg p-4 border border-spire-border/30">
+                <h4 className="text-sm text-spire-gold mb-2">Run Diagnostics</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+                  <div><span className="text-spire-muted/60">runId:</span> {run.runId}</div>
+                  <div><span className="text-spire-muted/60">seed:</span> {run.seed}</div>
+                  <div><span className="text-spire-muted/60">status:</span> {run.status}</div>
+                  <div><span className="text-spire-muted/60">engine:</span> {run.engineFingerprint}</div>
+                  {run.comboId && <div className="col-span-2"><span className="text-spire-muted/60">combo:</span> {run.comboId}</div>}
+                  {run.diagnostics?.errorCategory && (
+                    <div className="col-span-2"><span className="text-spire-muted/60">error:</span> <span className="text-amber-300">{run.diagnostics.errorCategory}</span></div>
+                  )}
+                  {run.diagnostics?.errorMessage && (
+                    <div className="col-span-2 sm:col-span-4"><span className="text-spire-muted/60">message:</span> <span className="text-red-300">{run.diagnostics.errorMessage}</span></div>
+                  )}
+                  {run.heroes && run.heroes.length > 0 && (
+                    <div className="col-span-2 sm:col-span-4">
+                      <span className="text-spire-muted/60">hero stats:</span>{" "}
+                      {run.heroes.map((h) => `${h.className} dmg ${h.damageDealt} taken ${h.damageReceived} healed ${h.healingReceived} items ${h.itemsUsed} deaths ${h.deaths}`).join(" · ")}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <CombatLogViewer
+                events={run.combatLog ?? []}
+                runIndex={selectedRun}
+                partyComposition={run.partyComposition}
+                outcome={run.outcome ?? "defeat"}
+              />
+            </>
+          );
+        })()}
       </div>
 
       {/* Download + Actions */}
-      <div className="flex justify-center gap-4 pb-4">
+      <div className="flex justify-center gap-4 pb-4 flex-wrap">
         <button className="btn-primary" onClick={() => { playSfx("ui", "button_click"); onDownloadJSON(); }}>
           📥 Download JSON
         </button>
         <button className="btn-primary" onClick={() => { playSfx("ui", "button_click"); onDownloadCSV(); }}>
           📥 Download CSV
         </button>
+        {onExportEvidence && (
+          <button
+            className="btn-primary"
+            onClick={() => { playSfx("ui", "button_click"); onExportEvidence(); }}
+            title="Export a versioned evidence package with reproducibility metadata"
+          >
+            📦 Export Evidence
+          </button>
+        )}
         <button className="btn-gold" onClick={onRunAnother}>
           🔄 Run Another Batch
         </button>
       </div>
     </div>
+  );
+}
+
+function EvidenceTierBadge({ tier, validRuns }: { tier: string; validRuns: number }) {
+  const styles: Record<string, { label: string; cls: string; hint: string }> = {
+    insufficient: {
+      label: "insufficient evidence",
+      cls: "text-red-300 border-red-300/40 bg-red-300/10",
+      hint: "Too few valid runs for meaningful inference (<10).",
+    },
+    exploratory: {
+      label: "exploratory",
+      cls: "text-amber-300 border-amber-300/40 bg-amber-300/10",
+      hint: "Indicative only — directional signal, wide uncertainty.",
+    },
+    replicated: {
+      label: "replicated",
+      cls: "text-spire-success border-spire-success/40 bg-spire-success/10",
+      hint: "100+ valid runs — estimates carry reasonable precision.",
+    },
+  };
+  const s = styles[tier] ?? styles.insufficient;
+  return (
+    <Tooltip
+      content={<span className="text-xs text-spire-muted">{s.hint} n={validRuns} valid runs.</span>}
+      side="top"
+    >
+      <span className={`px-2 py-0.5 rounded border text-[10px] cursor-help ${s.cls}`}>
+        {s.label} · n={validRuns}
+      </span>
+    </Tooltip>
   );
 }
 

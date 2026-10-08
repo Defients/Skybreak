@@ -54,6 +54,33 @@ export function addEvent(state: GameState, event: GameEvent): GameState {
     }
     stats = { ...stats, damageByHero, damageByMonster };
   }
+  // Stage 3 telemetry accumulators — maintained at the canonical event
+  // boundary so per-hero aggregates survive bounded-log pruning.
+  if (event.type === "DAMAGE_APPLIED" && typeof event.details?.damage === "number" && event.details.damage > 0) {
+    const targets = event.targetIds ?? [];
+    if (targets.some(t => state.party.heroes.some(h => h.id === t))) {
+      const received = { ...stats.damageReceivedByHero };
+      for (const t of targets) {
+        if (state.party.heroes.some(h => h.id === t)) {
+          received[t] = (received[t] ?? 0) + (event.details.damage as number);
+        }
+      }
+      stats = { ...stats, damageReceivedByHero: received };
+    }
+  }
+  if (event.type === "HEAL_APPLIED" && typeof event.details?.amount === "number" && event.details.amount > 0) {
+    const targets = event.targetIds ?? [];
+    if (targets.some(t => state.party.heroes.some(h => h.id === t))) {
+      const healing = { ...stats.healingByHero };
+      for (const t of targets) {
+        if (state.party.heroes.some(h => h.id === t)) {
+          healing[t] = (healing[t] ?? 0) + (event.details.amount as number);
+        }
+      }
+      stats = { ...stats, healingByHero: healing };
+    }
+  }
+
   let log = [...state.log, event];
   if (log.length > MAX_LOG_ENTRIES) {
     const setup = log.filter(e => e.type === "GAME_STARTED" || e.type === "PARTY_CREATED" || (e.type === "DICE_ROLLED" && e.summary.includes("Welcome Bonus"))).slice(0, 5);

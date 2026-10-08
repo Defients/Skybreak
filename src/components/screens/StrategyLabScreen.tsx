@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   Legend, ResponsiveContainer, Cell, RadarChart, Radar,
@@ -28,6 +28,8 @@ import type { GameEvent } from "../../types/events";
 import type { PartySetupChoice } from "../../engine/gameState";
 import { generateSeed } from "../../utils/ids";
 import { generateCrossProduct } from "../../engine/strategyLabEngine";
+import { wilsonInterval } from "../../engine/statistics";
+import { ExperimentHistoryPanel } from "../experiment/ExperimentHistoryPanel";
 import {
   formatLogSummaryWithNames,
   buildNameMapFromComposition,
@@ -120,20 +122,38 @@ export function StrategyLabScreen({ onBack }: Props) {
     config,
     result,
     isRunning,
+    isPaused,
     progress,
+    progressCounts,
     currentRunLog,
     currentRunSummary,
+    storageWarning,
+    experimentStatus,
+    throughput,
+    history,
+    historyLoaded,
     setConfig,
     setAxes,
     startLab,
     cancelLab,
+    pauseLab,
     resetLab,
     doDownloadJSON,
     doDownloadCSV,
+    loadHistory,
+    openExperiment,
+    resumeExperiment,
+    deleteExperiment,
+    exportEvidence,
   } = useStrategyLabStore();
 
   const { playSfx } = useAudio();
   const { isMobile } = useIsMobile();
+
+  useEffect(() => {
+    void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [partyMode, setPartyMode] = useState<"fixed" | "random">(config.partyMode);
   const [selections, setSelections] = useState<(HeroClassName | null)[]>([null, null, null]);
@@ -146,16 +166,34 @@ export function StrategyLabScreen({ onBack }: Props) {
   const totalRuns = comboCount * config.runsPerCombo;
 
   if (isRunning) {
-    return <RunningView progress={progress} currentRunLog={currentRunLog} currentRunSummary={currentRunSummary} onBack={onBack} onCancel={cancelLab} />;
+    return (
+      <RunningView
+        progress={progress}
+        progressCounts={progressCounts}
+        currentRunLog={currentRunLog}
+        currentRunSummary={currentRunSummary}
+        isPaused={isPaused}
+        storageWarning={storageWarning}
+        throughput={throughput}
+        onBack={onBack}
+        onCancel={cancelLab}
+        onPause={pauseLab}
+      />
+    );
   }
 
   if (result) {
     return (
       <ResultsView
         result={result}
+        experimentStatus={experimentStatus}
+        experimentId={useStrategyLabStore.getState().experimentId}
+        storageWarning={storageWarning}
+        onResume={resumeExperiment}
         onBack={onBack}
         onDownloadJSON={doDownloadJSON}
         onDownloadCSV={doDownloadCSV}
+        onExportEvidence={exportEvidence}
         onRunAnother={() => { playSfx("ui", "button_click"); resetLab(); }}
       />
     );
@@ -248,6 +286,43 @@ export function StrategyLabScreen({ onBack }: Props) {
               </button>
             </div>
           </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+          <div>
+            <label className="block text-sm text-spire-muted mb-1.5">Experiment Name</label>
+            <input
+              className="input w-full"
+              placeholder="(optional)"
+              value={config.name ?? ""}
+              onChange={(e) => setConfig({ name: e.target.value || undefined })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-spire-muted mb-1.5">Telemetry Level</label>
+            <select
+              className="input w-full"
+              value={config.telemetryLevel ?? "standard"}
+              onChange={(e) => setConfig({ telemetryLevel: e.target.value as "minimal" | "standard" | "deep" })}
+            >
+              <option value="minimal">Minimal — outcomes only</option>
+              <option value="standard">Standard — bounded log</option>
+              <option value="deep">Deep — full event log</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-spire-muted pb-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-spire-accent"
+              checked={config.sharedCohort ?? false}
+              onChange={(e) => setConfig({ sharedCohort: e.target.checked })}
+            />
+            <span>
+              Shared-cohort comparison
+              <span className="block text-[10px] text-spire-muted/60">
+                Replays the same seed across all combos — differences are attributable to strategy. Initial conditions only; realized randomness still diverges.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -443,6 +518,16 @@ export function StrategyLabScreen({ onBack }: Props) {
            `▶️ Run ${totalRuns} Games (${comboCount} combos)`}
         </button>
       </div>
+
+      {/* Experiment History */}
+      {historyLoaded && history.length > 0 && (
+        <ExperimentHistoryPanel
+          experiments={history}
+          onOpen={(id) => { playSfx("ui", "button_click"); void openExperiment(id); }}
+          onResume={(id) => { playSfx("ui", "button_click"); void resumeExperiment(id); }}
+          onDelete={(id) => { void deleteExperiment(id); }}
+        />
+      )}
     </div>
   );
 }
@@ -489,18 +574,30 @@ function AxisSelector<T extends string>({
 
 function RunningView({
   progress,
+  progressCounts,
   currentRunLog,
   currentRunSummary,
+  isPaused,
+  storageWarning,
+  throughput,
   onBack,
   onCancel,
+  onPause,
 }: {
   progress: { currentCombo: number; totalCombos: number; currentRun: number; runsPerCombo: number; comboLabel: string } | null;
+  progressCounts?: { completed: number; total: number; persisted: number };
   currentRunLog: GameEvent[];
   currentRunSummary: string;
+  isPaused?: boolean;
+  storageWarning?: string | null;
+  throughput?: number;
   onBack: () => void;
   onCancel?: () => void;
+  onPause?: () => void;
 }) {
-  const comboPct = progress ? Math.round(((progress.currentCombo + progress.currentRun / progress.runsPerCombo) / progress.totalCombos) * 100) : 0;
+  const comboPct = progressCounts
+    ? Math.round((progressCounts.completed / Math.max(progressCounts.total, 1)) * 100)
+    : progress ? Math.round(((progress.currentCombo + progress.currentRun / progress.runsPerCombo) / progress.totalCombos) * 100) : 0;
   const runPct = progress ? Math.round((progress.currentRun / progress.runsPerCombo) * 100) : 0;
 
   const handleCancel = () => {
@@ -511,18 +608,42 @@ function RunningView({
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-display gold-text">Running Strategy Lab...</h2>
-        <button className="btn-ghost text-sm px-4 py-2" onClick={handleCancel}>← Cancel</button>
+        <h2 className="text-3xl font-display gold-text">{isPaused ? "Strategy Lab Paused" : "Running Strategy Lab..."}</h2>
+        <div className="flex items-center gap-2">
+          {onPause && !isPaused && (
+            <button
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-300/40 text-amber-300 hover:bg-amber-500/10 transition-all duration-200"
+              onClick={onPause}
+            >
+              Pause
+            </button>
+          )}
+          <button className="btn-ghost text-sm px-4 py-2" onClick={handleCancel}>← Cancel</button>
+        </div>
       </div>
+
+      {storageWarning && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg">
+          <div className="text-xs text-amber-200/90">⚠️ {storageWarning}</div>
+        </div>
+      )}
 
       <div className="glass-card p-6 space-y-4">
         <div>
           <div className="flex items-center justify-between text-sm mb-1.5">
             <span className="text-spire-white font-medium">Overall Progress</span>
-            <span className="text-spire-gold">{comboPct}%</span>
+            <span className="text-spire-gold">
+              {progressCounts ? `${progressCounts.completed} / ${progressCounts.total} ` : ""}({comboPct}%)
+            </span>
           </div>
           <div className="h-3 bg-spire-bg rounded-full overflow-hidden border border-spire-border/40">
             <div className="h-full bg-gradient-to-r from-spire-accent to-teal-400 transition-all duration-300" style={{ width: `${comboPct}%` }} />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-spire-muted/70 mt-1">
+            <span>{progressCounts?.persisted ?? 0} committed to storage</span>
+            {throughput !== undefined && throughput > 0 && (
+              <span className="tabular-nums">{throughput.toFixed(1)} runs/s</span>
+            )}
           </div>
         </div>
 
@@ -566,15 +687,25 @@ type SortDir = "asc" | "desc";
 
 function ResultsView({
   result,
+  experimentStatus,
+  experimentId,
+  storageWarning,
+  onResume,
   onBack,
   onDownloadJSON,
   onDownloadCSV,
+  onExportEvidence,
   onRunAnother,
 }: {
   result: StrategyLabResult;
+  experimentStatus?: string | null;
+  experimentId?: string | null;
+  storageWarning?: string | null;
+  onResume?: (id: string) => void;
   onBack: () => void;
   onDownloadJSON: () => void;
   onDownloadCSV: () => void;
+  onExportEvidence?: () => void;
   onRunAnother: () => void;
 }) {
   const { playSfx } = useAudio();
@@ -641,6 +772,38 @@ function ResultsView({
           ← Back
         </button>
       </div>
+
+      {experimentStatus && experimentStatus !== "completed" && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs text-amber-200/90">
+            ⚠️ This experiment is <span className="font-semibold">{experimentStatus}</span> — the
+            comparisons below reflect partial evidence. Do not treat rankings as final.
+          </div>
+          {onResume && experimentId && (
+            <button
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-spire-accent/40 text-spire-accent hover:bg-spire-accent/10 transition-all duration-200"
+              onClick={() => { playSfx("ui", "button_click"); onResume(experimentId); }}
+            >
+              ▶ Resume Experiment
+            </button>
+          )}
+        </div>
+      )}
+      {storageWarning && (
+        <div className="glass-card p-3 border border-amber-400/40 bg-amber-500/10 rounded-lg">
+          <div className="text-xs text-amber-200/90">⚠️ {storageWarning}</div>
+        </div>
+      )}
+      {result.config.sharedCohort && (
+        <div className="glass-card p-3 border border-spire-accent/30 bg-spire-accent/5 rounded-lg">
+          <div className="text-xs text-spire-muted">
+            🔬 <span className="font-medium text-spire-accent">Shared-cohort protocol:</span> all
+            combos replayed the same per-index seeds — differences are attributable to strategy,
+            not initial RNG. Note: realized randomness still diverges once strategies consume
+            RNG differently.
+          </div>
+        </div>
+      )}
 
       {/* Tab Bar */}
       <div className="flex flex-wrap gap-2">
@@ -738,6 +901,8 @@ function ResultsView({
                   {([
                     { key: "comboLabel" as SortKey, label: "Strategy Combo", sortable: true },
                     { key: "victoryRate" as SortKey, label: "Win %", sortable: true },
+                    { key: "ci", label: "95% CI", sortable: false },
+                    { key: "n", label: "n", sortable: false },
                     { key: "avgScore" as SortKey, label: "Avg Score", sortable: true },
                     { key: "maxScore" as SortKey, label: "Max Score", sortable: true },
                     { key: "avgTurns" as SortKey, label: "Avg Turns", sortable: true },
@@ -748,7 +913,7 @@ function ResultsView({
                     <th
                       key={col.key}
                       className={`text-${col.key === "comboLabel" ? "left" : "right"} py-2 px-2 cursor-pointer hover:text-spire-white transition-colors ${sortKey === col.key ? "text-spire-gold" : ""}`}
-                      onClick={() => col.sortable && handleSort(col.key)}
+                      onClick={() => col.sortable && handleSort(col.key as SortKey)}
                     >
                       {col.label}
                       {sortKey === col.key && <span className="ml-1">{sortDir === "asc" ? "↑" : "↓"}</span>}
@@ -780,6 +945,14 @@ function ResultsView({
                         <span className={cr.aggregate.victoryRate >= 50 ? "text-green-400 font-medium" : cr.aggregate.victoryRate >= 25 ? "text-amber-400" : "text-red-400"}>
                           {cr.aggregate.victoryRate}%
                         </span>
+                      </td>
+                      <td className="py-2 px-2 text-right text-spire-muted text-xs tabular-nums">
+                        {cr.aggregate.victoryRateCI
+                          ? `[${(cr.aggregate.victoryRateCI.low * 100).toFixed(0)}–${(cr.aggregate.victoryRateCI.high * 100).toFixed(0)}]`
+                          : "—"}
+                      </td>
+                      <td className="py-2 px-2 text-right text-spire-muted text-xs tabular-nums" title={`${cr.aggregate.errorRuns + cr.aggregate.timeoutRuns + cr.aggregate.invalidRuns} technical failure(s) excluded`}>
+                        {cr.aggregate.validRuns}
                       </td>
                       <td className="py-2 px-2 text-right text-spire-gold font-medium">{cr.aggregate.avgScore}</td>
                       <td className="py-2 px-2 text-right text-spire-white">{cr.aggregate.maxScore}</td>
@@ -948,6 +1121,43 @@ function ResultsView({
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
+                <thead>
+                  <tr className="text-spire-muted text-xs border-b border-spire-border/40">
+                    <th className="text-left py-1.5 px-2">Class</th>
+                    <th className="text-right py-1.5 px-2" title="Runs containing this class — party-level association, not causation">Party Runs</th>
+                    <th className="text-right py-1.5 px-2">Win %</th>
+                    <th className="text-right py-1.5 px-2">95% CI</th>
+                    <th className="text-right py-1.5 px-2" title="Fraction of hero-appearances ending alive">Indiv. Survival</th>
+                    <th className="text-right py-1.5 px-2">Avg Dmg Dealt</th>
+                    <th className="text-right py-1.5 px-2">Avg Dmg Taken</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aggregateClassStats(result).map((s) => (
+                    <tr key={s.className} className="border-b border-spire-border/20">
+                      <td className="py-1.5 px-2 text-spire-gold">{s.className}</td>
+                      <td className="py-1.5 px-2 text-right text-spire-white tabular-nums">{s.appearances}</td>
+                      <td className="py-1.5 px-2 text-right text-spire-white tabular-nums">{s.winRate}%</td>
+                      <td className="py-1.5 px-2 text-right text-spire-muted text-xs tabular-nums">
+                        {s.winRateCI ? `[${(s.winRateCI.low * 100).toFixed(0)}–${(s.winRateCI.high * 100).toFixed(0)}]` : "—"}
+                      </td>
+                      <td className="py-1.5 px-2 text-right text-spire-white tabular-nums">
+                        {s.individualSurvivalRate !== undefined ? `${s.individualSurvivalRate}%` : "—"}
+                      </td>
+                      <td className="py-1.5 px-2 text-right text-spire-white tabular-nums">{s.avgDamageDealt ?? "—"}</td>
+                      <td className="py-1.5 px-2 text-right text-spire-white tabular-nums">{s.avgDamageReceived ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="text-[10px] text-spire-muted/60 mt-2">
+                Win rate is a party-level association — a hero class does not act alone.
+                Individual survival/damage are per-hero telemetry and only present when telemetry
+                was recorded.
+              </div>
+            </div>
           </div>
 
           {/* Class Survival Rate */}
@@ -1078,13 +1288,22 @@ function ResultsView({
       )}
 
       {/* Download + Actions */}
-      <div className="flex justify-center gap-4 pb-4">
+      <div className="flex justify-center gap-4 pb-4 flex-wrap">
         <button className="btn-primary" onClick={() => { playSfx("ui", "button_click"); onDownloadJSON(); }}>
           📥 Download JSON
         </button>
         <button className="btn-primary" onClick={() => { playSfx("ui", "button_click"); onDownloadCSV(); }}>
           📥 Download CSV
         </button>
+        {onExportEvidence && (
+          <button
+            className="btn-primary"
+            onClick={() => { playSfx("ui", "button_click"); onExportEvidence(); }}
+            title="Export a versioned evidence package with reproducibility metadata"
+          >
+            📦 Export Evidence
+          </button>
+        )}
         <button className="btn-gold" onClick={onRunAnother}>
           🔄 Run Another Lab
         </button>
@@ -1209,18 +1428,24 @@ function ComboDrillDown({ combo, comboIndex }: { combo: ComboResult; comboIndex:
               >
                 <td className="py-2 px-2 text-spire-muted">{run.runIndex + 1}</td>
                 <td className="py-2 px-2 text-spire-muted text-xs">{run.seed}</td>
-                <td className="py-2 px-2">
-                  <span className={run.outcome === "victory" ? "text-spire-success" : "text-spire-danger"}>
-                    {run.outcome === "victory" ? "🏆 Win" : "💀 Loss"}
-                  </span>
-                  {run.outcome === "defeat" && run.defeatedBy && (
-                    <span className="block text-[10px] text-spire-muted/70 mt-0.5">vs {run.defeatedBy}</span>
+                <td className="py-2 px-2" title={run.diagnostics?.errorMessage}>
+                  {run.status === "completed" ? (
+                    <>
+                      <span className={run.outcome === "victory" ? "text-spire-success" : "text-spire-danger"}>
+                        {run.outcome === "victory" ? "🏆 Win" : run.outcome === "retreat" ? "🏳 Retreat" : "💀 Loss"}
+                      </span>
+                      {run.outcome === "defeat" && run.defeatedBy && (
+                        <span className="block text-[10px] text-spire-muted/70 mt-0.5">vs {run.defeatedBy}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-amber-400">⚠ {run.status}</span>
                   )}
                 </td>
-                <td className="py-2 px-2 text-right text-spire-gold font-medium">{run.score.finalScore}</td>
-                <td className="py-2 px-2 text-right text-spire-white">{run.totalTurns}</td>
-                <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared}</td>
-                <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive}</td>
+                <td className="py-2 px-2 text-right text-spire-gold font-medium">{run.score?.finalScore ?? "—"}</td>
+                <td className="py-2 px-2 text-right text-spire-white">{run.totalTurns ?? "—"}</td>
+                <td className="py-2 px-2 text-right text-spire-white">{run.roomsCleared ?? "—"}</td>
+                <td className="py-2 px-2 text-right text-spire-white">{run.heroesAlive ?? "—"}</td>
                 <td className="py-2 px-2 text-xs text-spire-muted">
                   {run.partyComposition.map((p) => `${p.className} (${p.specialization})`).join(" + ")}
                 </td>
@@ -1229,23 +1454,44 @@ function ComboDrillDown({ combo, comboIndex }: { combo: ComboResult; comboIndex:
           </tbody>
         </table>
 
-        {selectedRun !== null && (
-          <div className="mt-4">
-            <button
-              className="btn-ghost text-xs px-3 py-1.5 mb-2"
-              onClick={() => { playSfx("ui", "button_click"); setShowLog(!showLog); }}
-            >
-              {showLog ? "📋 Hide Combat Log" : "📜 Show Full Combat Log"}
-            </button>
-            {showLog && (
-              <CombatLogViewer
-                events={combo.runs[selectedRun].combatLog}
-                runIndex={selectedRun}
-                partyComposition={combo.runs[selectedRun].partyComposition}
-              />
-            )}
-          </div>
-        )}
+        {selectedRun !== null && (() => {
+          const run = combo.runs.find((r) => r.runIndex === selectedRun);
+          if (!run) return null;
+          return (
+            <div className="mt-4">
+              <div className="bg-spire-bg/40 rounded-lg p-3 border border-spire-border/30 mb-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+                  <div><span className="text-spire-muted/60">runId:</span> {run.runId}</div>
+                  <div><span className="text-spire-muted/60">seed:</span> {run.seed}</div>
+                  <div><span className="text-spire-muted/60">status:</span> {run.status}</div>
+                  <div><span className="text-spire-muted/60">cohort:</span> {run.cohortIndex}</div>
+                  {run.diagnostics?.errorMessage && (
+                    <div className="col-span-2 sm:col-span-4"><span className="text-spire-muted/60">error:</span> <span className="text-red-300">{run.diagnostics.errorMessage}</span></div>
+                  )}
+                  {run.heroes && run.heroes.length > 0 && (
+                    <div className="col-span-2 sm:col-span-4">
+                      <span className="text-spire-muted/60">hero stats:</span>{" "}
+                      {run.heroes.map((h) => `${h.className} dmg ${h.damageDealt} taken ${h.damageReceived} healed ${h.healingReceived}`).join(" · ")}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                className="btn-ghost text-xs px-3 py-1.5 mb-2"
+                onClick={() => { playSfx("ui", "button_click"); setShowLog(!showLog); }}
+              >
+                {showLog ? "📋 Hide Combat Log" : "📜 Show Full Combat Log"}
+              </button>
+              {showLog && (
+                <CombatLogViewer
+                  events={run.combatLog ?? []}
+                  runIndex={selectedRun}
+                  partyComposition={run.partyComposition}
+                />
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1291,31 +1537,50 @@ function CombatLogViewer({
 }
 
 function aggregateClassStats(result: StrategyLabResult) {
-  const classAgg = new Map<HeroClassName, { appearances: number; victories: number; totalScore: number; totalSurvival: number }>();
+  const classAgg = new Map<HeroClassName, {
+    appearances: number; victories: number; totalScore: number; totalSurvival: number;
+    heroAppearances: number; heroSurvivals: number; totalDamageDealt: number; totalDamageReceived: number;
+  }>();
   for (const cls of ALL_CLASSES) {
-    classAgg.set(cls, { appearances: 0, victories: 0, totalScore: 0, totalSurvival: 0 });
+    classAgg.set(cls, { appearances: 0, victories: 0, totalScore: 0, totalSurvival: 0, heroAppearances: 0, heroSurvivals: 0, totalDamageDealt: 0, totalDamageReceived: 0 });
   }
   for (const combo of result.combos) {
     for (const run of combo.runs) {
+      if (run.status !== "completed") continue;
       const isWin = run.outcome === "victory";
       for (const member of run.partyComposition) {
         const entry = classAgg.get(member.className);
         if (!entry) continue;
         entry.appearances++;
         if (isWin) entry.victories++;
-        entry.totalScore += run.score.finalScore;
-        entry.totalSurvival += run.heroesAlive;
+        entry.totalScore += run.score?.finalScore ?? 0;
+        entry.totalSurvival += run.heroesAlive ?? 0;
+      }
+      // Genuine per-hero telemetry — individual survival, not party count.
+      for (const hero of run.heroes ?? []) {
+        const entry = classAgg.get(hero.className as HeroClassName);
+        if (!entry) continue;
+        entry.heroAppearances++;
+        if (hero.alive) entry.heroSurvivals++;
+        entry.totalDamageDealt += hero.damageDealt;
+        entry.totalDamageReceived += hero.damageReceived;
       }
     }
   }
   return ALL_CLASSES.map((cls) => {
     const e = classAgg.get(cls)!;
+    const ci = wilsonInterval(e.victories, e.appearances);
     return {
       className: cls,
       appearances: e.appearances,
+      victories: e.victories,
       winRate: e.appearances > 0 ? Math.round((e.victories / e.appearances) * 100) : 0,
+      winRateCI: ci ? { low: ci.low, high: ci.high } : undefined,
       avgScore: e.appearances > 0 ? Math.round(e.totalScore / e.appearances) : 0,
       avgSurvival: e.appearances > 0 ? parseFloat((e.totalSurvival / e.appearances).toFixed(1)) : 0,
+      individualSurvivalRate: e.heroAppearances > 0 ? Math.round((e.heroSurvivals / e.heroAppearances) * 100) : undefined,
+      avgDamageDealt: e.heroAppearances > 0 ? Math.round(e.totalDamageDealt / e.heroAppearances) : undefined,
+      avgDamageReceived: e.heroAppearances > 0 ? Math.round(e.totalDamageReceived / e.heroAppearances) : undefined,
     };
   });
 }
@@ -1324,6 +1589,7 @@ function aggregateSpecStats(result: StrategyLabResult) {
   const specAgg = new Map<string, { className: string; spec: string; appearances: number; victories: number; totalScore: number; totalSurvival: number }>();
   for (const combo of result.combos) {
     for (const run of combo.runs) {
+      if (run.status !== "completed") continue;
       const isWin = run.outcome === "victory";
       for (const member of run.partyComposition) {
         const key = `${member.className}|${member.specialization}`;
@@ -1334,8 +1600,8 @@ function aggregateSpecStats(result: StrategyLabResult) {
         }
         entry.appearances++;
         if (isWin) entry.victories++;
-        entry.totalScore += run.score.finalScore;
-        entry.totalSurvival += run.heroesAlive;
+        entry.totalScore += run.score?.finalScore ?? 0;
+        entry.totalSurvival += run.heroesAlive ?? 0;
       }
     }
   }
@@ -1372,8 +1638,9 @@ function getClassByCombatStrategyData(result: StrategyLabResult) {
       for (const combo of result.combos) {
         if (combo.combo.combatStrategy !== strat) continue;
         for (const run of combo.runs) {
+          if (run.status !== "completed") continue;
           if (run.partyComposition.some((p) => p.className === cls)) {
-            totalScore += run.score.finalScore;
+            totalScore += run.score?.finalScore ?? 0;
             count++;
           }
         }
@@ -1391,11 +1658,12 @@ function PartyCompTable({ result }: { result: StrategyLabResult }) {
   for (const combo of result.combos) {
     for (const run of combo.runs) {
       const compKey = run.partyComposition.map((p) => `${p.className} (${p.specialization})`).sort().join(" + ");
+      if (run.status !== "completed") continue;
       const entry = compMap.get(compKey) ?? { wins: 0, total: 0, avgScore: 0, scoreSum: 0, bestCombo: combo.comboLabel };
       entry.total++;
       if (run.outcome === "victory") entry.wins++;
-      entry.scoreSum += run.score.finalScore;
-      if (run.outcome === "victory" && run.score.finalScore > entry.scoreSum / entry.total) {
+      entry.scoreSum += run.score?.finalScore ?? 0;
+      if (run.outcome === "victory" && (run.score?.finalScore ?? 0) > entry.scoreSum / entry.total) {
         entry.bestCombo = combo.comboLabel;
       }
       compMap.set(compKey, entry);
