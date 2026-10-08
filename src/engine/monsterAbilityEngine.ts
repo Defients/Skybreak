@@ -77,7 +77,7 @@ function maybeRedirectAttack(
 }
 
 export function executeMonsterTurn(state: GameState, rng: RngEngine): GameState {
-  if (!state.combat) return state;
+  if (!state.combat || state.combat.combatResult || state.phase === "victory" || state.phase === "defeat") return state;
   let newState = state;
   const monster = newState.combat!.monster;
 
@@ -144,7 +144,9 @@ export function executeMonsterTurn(state: GameState, rng: RngEngine): GameState 
 }
 
 function finishMonsterTurn(state: GameState): GameState {
-  let newState = state;
+  // A "next turn" immunity protects this whole monster turn, then expires.
+  let newState: GameState = { ...state, party: { ...state.party, heroes: state.party.heroes.map(h => h.perTurnFlags["immuneNextTurn"]
+    ? { ...h, perTurnFlags: { ...h.perTurnFlags, immuneNextTurn: false } } : h) } };
 
   // Stalemate detection: compare current HP vs lastHpSnapshot
   const combat = newState.combat!;

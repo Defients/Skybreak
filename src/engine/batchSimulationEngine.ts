@@ -359,13 +359,14 @@ export async function runSingleGame(
     showDiceRolls: false,
   });
 
-  const rng = new RngEngine(seed);
+  let rng = new RngEngine(seed);
 
   const partyChoices = config.partyMode === "fixed" && config.partyChoices
     ? config.partyChoices
     : randomParty(rng);
 
   let state = initializeGame(simConfig, partyChoices);
+  rng = RngEngine.deserialize(state.rng);
 
   // Resolve the welcome bonus for easy/normal difficulty, mirroring the
   // playable path. Without this, batch runs on easy/normal start without

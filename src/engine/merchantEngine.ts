@@ -8,6 +8,28 @@ import { emitEvent } from "./eventLog";
 import { getLivingHeroes, getDeadHeroes } from "./rulesEngine";
 import { generateId } from "../utils/ids";
 import { itemHasTag } from "../utils/tagMatchers";
+import { hasOverCapacityInventory } from "./inventoryEngine";
+
+/** Current engine prices, shared by transactions, recommendations and UI. */
+export function getMerchantPrice(state: GameState, base: number, kind: "item" | "revival" | "other" = "other"): number {
+  let price = Math.floor(base * (state.spire.merchantPriceMultiplier ?? 1));
+  if (kind === "item" && state.settings.difficulty === "nightmare") price = Math.floor(price * 1.5);
+  if (kind === "revival" && state.settings.difficulty === "easy") price = Math.floor(price * 0.5);
+  if (state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"))) price = Math.floor(price * 0.9);
+  return price;
+}
+
+export function getPricedMerchant(state: GameState): MerchantState | undefined {
+  const merchant = state.merchant;
+  if (!merchant) return undefined;
+  return { ...merchant,
+    items: merchant.items.map(item => ({ ...item, cost: getMerchantPrice(state, item.cost, "item") })),
+    weapons: merchant.weapons.map(item => ({ ...item, cost: getMerchantPrice(state, item.cost) })),
+    enchantments: merchant.enchantments.map(item => ({ ...item, cost: getMerchantPrice(state, item.cost) })),
+    permanentUpgrades: merchant.permanentUpgrades.map(item => ({ ...item, cost: getMerchantPrice(state, item.cost) })),
+    healingServices: merchant.healingServices.map(item => ({ ...item, cost: getMerchantPrice(state, item.cost, item.name.startsWith("Revive") ? "revival" : "other") })),
+  };
+}
 
 export function createMerchant(tier: 1 | 2 | 3): MerchantState {
   const weapons: MerchantState["weapons"] = [];
@@ -80,22 +102,18 @@ export function enterMerchant(state: GameState): GameState {
 }
 
 export function buyItem(state: GameState, itemName: string, heroId: string): GameState {
+  if (getItemPurchaseRejection(state, itemName, heroId)) return state;
   const tier = state.spire.tier;
   const itemData = ITEMS[itemName as keyof typeof ITEMS];
-  if (!itemData) return state;
+  if (!itemData || itemData.isJoker) return state;
 
   let cost = tier === 1 ? itemData.costs.t1 : tier === 2 ? itemData.costs.t2 : itemData.costs.t3;
   // Apply merchant price multiplier from tier transitions
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  // Nightmare difficulty: items cost +50%
-  if (state.settings.difficulty === "nightmare") cost = Math.floor(cost * 1.5);
-  // Party Fund discount: 10% off
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "item");
   if (state.party.gold < cost) return state;
 
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
 
   // Extra Pocket: +1 item capacity per upgrade (max 2)
   const extraPockets = hero.upgrades.filter(u => u.name === "Extra Pocket").length;
@@ -105,6 +123,7 @@ export function buyItem(state: GameState, itemName: string, heroId: string): Gam
 
   let newState: GameState = {
     ...state,
+    merchant: state.merchant ? { ...state.merchant, items: state.merchant.items.map(i => i.name === itemName ? { ...i, quantity: i.quantity - 1 } : i) } : undefined,
     party: {
       ...state.party,
       gold: state.party.gold - cost,
@@ -136,19 +155,37 @@ export function buyItem(state: GameState, itemName: string, heroId: string): Gam
   return newState;
 }
 
+/** Item eligibility shared by the transaction and visible controls. */
+export function getItemPurchaseRejection(state: GameState, itemName: string, heroId: string): string | null {
+  const data = ITEMS[itemName as keyof typeof ITEMS];
+  if (!data || data.isJoker) return "This item cannot be purchased.";
+  if (data.itemId === "lucky_charm") return "Die reroll selection is not implemented yet.";
+  const hero = state.party.heroes.find(h => h.id === heroId);
+  if (!hero?.alive) return "Choose a living hero.";
+  if (state.merchant && !state.merchant.items.some(i => i.name === itemName && i.quantity > 0)) return "Sold out.";
+  if (hero.items.filter(i => i.itemId === data.itemId).reduce((n, i) => n + i.quantity, 0) >= data.stackLimit) return `Limit: ${data.stackLimit} per hero.`;
+  if (hero.items.length >= 3 + hero.upgrades.filter(u => u.name === "Extra Pocket").length) return "This hero's item slots are full.";
+  if (state.party.gold < getMerchantPrice(state, getItemCost(data.name, state.spire.tier), "item")) return "Not enough gold.";
+  return null;
+}
+
 export function buyHealing(state: GameState, serviceName: string, targetHeroId?: string): GameState {
   const tier = state.spire.tier;
   const service = HEALING_SERVICES[serviceName];
   if (!service) return state;
 
+  // Validate eligibility BEFORE debiting. Invalid/no-op transactions are atomic.
+  const target = state.party.heroes.find(h => h.id === targetHeroId);
+  if (serviceName === "Patch Up" || serviceName === "First Aid") {
+    if (!target?.alive || target.currentHp >= target.maxHp) return state;
+  } else if (serviceName === "Revive 50%" || serviceName === "Revive Full") {
+    if (state.settings.difficulty === "hard") return state;
+    if (targetHeroId ? !target || target.alive : getDeadHeroes(state).length === 0) return state;
+  } else if (!getLivingHeroes(state).some(h => h.currentHp < h.maxHp)) return state;
+
   let cost = getHealingCost(serviceName, tier);
   // Apply merchant price multiplier from tier transitions
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  // Easy difficulty: revival cost -50%
-  if (state.settings.difficulty === "easy" && serviceName.includes("Revive")) cost = Math.floor(cost * 0.5);
-  // Party Fund discount: 10% off
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, serviceName.startsWith("Revive") ? "revival" : "other");
   if (state.party.gold < cost) return state;
 
   let newState: GameState = {
@@ -245,14 +282,11 @@ export function buyUpgrade(state: GameState, upgradeName: string, heroId: string
 
   let cost = getUpgradeCost(upgradeName, tier);
   // Apply merchant price multiplier from tier transitions
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  // Party Fund discount: 10% off
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
 
   // Enforce upgrade limits using structured metadata
   if (upgrade.limitType && upgrade.limitCount !== undefined) {
@@ -280,7 +314,7 @@ export function buyUpgrade(state: GameState, upgradeName: string, heroId: string
           updated.currentHp += 2;
           updated.baseMaxHp += 2;
         } else if (upgradeName === "Lucky Dice") {
-          updated.perTurnFlags["luckyDice"] = true;
+          updated.perTurnFlags = { ...updated.perTurnFlags, luckyDice: true };
         }
         updated.upgrades = [...updated.upgrades, {
           id: generateId("upgrade"),
@@ -307,15 +341,15 @@ const RARITY_ORDER: WeaponRarity[] = ["Common", "Rare", "Epic", "Legendary"];
 export function buyWeapon(state: GameState, weaponName: string, heroId: string): GameState {
   const weaponData = WEAPONS.find(w => w.name === weaponName);
   if (!weaponData) return state;
+  if (weaponData.rarity === "Epic" && state.spire.tier < 2) return state;
+  if (weaponData.rarity === "Legendary" && state.spire.tier < 3) return state;
 
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
   if (hero.className !== weaponData.className) return state;
 
   let cost = weaponData.baseCost;
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   const newState: GameState = {
@@ -351,7 +385,7 @@ export function buyWeapon(state: GameState, weaponName: string, heroId: string):
 
 export function upgradeWeapon(state: GameState, heroId: string): GameState {
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
 
   const currentRarity = hero.weapon.rarity;
   const currentIdx = RARITY_ORDER.indexOf(currentRarity);
@@ -368,9 +402,7 @@ export function upgradeWeapon(state: GameState, heroId: string): GameState {
   if (nextRarity === "Legendary" && tier < 3) return state;
 
   let cost = upgradeCost;
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   // Find a weapon of the next rarity for this class
@@ -415,7 +447,7 @@ export function upgradeWeapon(state: GameState, heroId: string): GameState {
 
 export function reforgeWeapon(state: GameState, heroId: string): GameState {
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
 
   const currentWeaponData = WEAPONS.find(w => w.id === hero.weapon.weaponId);
   if (!currentWeaponData) return state;
@@ -428,9 +460,7 @@ export function reforgeWeapon(state: GameState, heroId: string): GameState {
   if (sameRarityWeapons.length === 0) return state;
 
   let cost = Math.floor(currentWeaponData.baseCost * 0.5);
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   const currentSuit = currentWeaponData.suit;
@@ -470,14 +500,12 @@ export function reforgeWeapon(state: GameState, heroId: string): GameState {
 
 export function repairWeapon(state: GameState, heroId: string): GameState {
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
 
   const tier = state.spire.tier;
   const repairCosts: Record<number, number> = { 1: 30, 2: 45, 3: 68 };
   let cost = repairCosts[tier] ?? 30;
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   const hadDebuffs = hero.debuffs.length > 0;
@@ -523,7 +551,7 @@ export interface SuggestedPurchase {
 
 export function getSuggestedPurchases(state: GameState): SuggestedPurchase[] {
   if (!state.merchant) return [];
-  const merchant = state.merchant;
+  const merchant = getPricedMerchant(state)!;
   const gold = state.party.gold;
   const living = getLivingHeroes(state);
   const dead = getDeadHeroes(state);
@@ -595,7 +623,7 @@ export function getSuggestedPurchases(state: GameState): SuggestedPurchase[] {
       if (nextRarity === "Epic" && tier < 2) continue;
       if (nextRarity === "Legendary" && tier < 3) continue;
       const nextRarityData = WEAPON_RARITY_DATA[nextRarity];
-      const upgradeCost = nextRarityData.upgradeCost;
+      const upgradeCost = getMerchantPrice(state, nextRarityData.upgradeCost);
       if (upgradeCost <= 0 || gold < upgradeCost) continue;
       const upgradeWeapons = WEAPONS.filter(w => w.className === hero.className && w.rarity === nextRarity);
       if (upgradeWeapons.length === 0) continue;
@@ -745,18 +773,18 @@ export function getSuggestedPurchases(state: GameState): SuggestedPurchase[] {
 }
 
 export function buyEnchantment(state: GameState, enchantmentName: string, heroId: string): GameState {
+  // A flag without a roll-choice consumer cannot deliver this paid effect.
+  if (enchantmentName === "Swift") return state;
   const tier = state.spire.tier;
   const enchData = ENCHANTMENTS[enchantmentName as EnchantmentName];
   if (!enchData) return state;
 
   let cost = getEnchantmentCost(enchantmentName as EnchantmentName, tier);
-  cost = Math.floor(cost * (state.spire.merchantPriceMultiplier ?? 1));
-  const hasPartyFund = state.party.heroes.some(h => h.upgrades.some(u => u.name === "Party Fund"));
-  if (hasPartyFund) cost = Math.floor(cost * 0.9);
+  cost = getMerchantPrice(state, cost, "other");
   if (state.party.gold < cost) return state;
 
   const hero = state.party.heroes.find(h => h.id === heroId);
-  if (!hero) return state;
+  if (!hero || !hero.alive) return state;
   if (hero.enchantment) return state;
 
   const newState: GameState = {
@@ -977,13 +1005,15 @@ export function autoBuy(state: GameState): GameState {
 
     const purchaseCost = goldBefore - newState.party.gold;
     const tax = Math.ceil(purchaseCost * TAX_RATE);
+    // The complete transaction, including tax, must be affordable.
+    if (purchaseCost + tax > goldBefore) break;
     totalTax += tax;
 
     currentState = {
       ...newState,
       party: {
         ...newState.party,
-        gold: Math.max(0, newState.party.gold - tax),
+        gold: newState.party.gold - tax,
       },
       stats: {
         ...newState.stats,
@@ -1003,6 +1033,7 @@ export function autoBuy(state: GameState): GameState {
 }
 
 export function leaveMerchant(state: GameState): GameState {
+  if (hasOverCapacityInventory(state)) return state;
   return {
     ...state,
     phase: "exploration",

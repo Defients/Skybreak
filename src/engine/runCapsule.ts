@@ -10,8 +10,8 @@
  * clipboard, pasted into chat, or saved as a file.
  */
 
-import type { Difficulty, GameMode } from "../types/simulation";
-import type { HeroClassName } from "../types/heroes";
+import type { Difficulty, GameMode, RngMode } from "../types/simulation";
+import type { HeroClassName, HeroPosition } from "../types/heroes";
 import type { Suit } from "../types/cards";
 import type { GameState } from "../types/gameState";
 import type {
@@ -23,8 +23,16 @@ import type {
   WeaponUpgradeStrategy,
 } from "../types/batch";
 
-/** Semantic version of the capsule format. Bumped on breaking changes. */
-export const CAPSULE_VERSION = 1;
+/**
+ * Semantic version of the capsule format. Bumped on breaking changes.
+ *
+ * v2: party.suit may be null (unrecorded in pre-`startingParty` saves) and a
+ * `replayable` flag reports whether the capsule captures the exact starting
+ * conditions. v1 capsules inferred suits from mutable APC state.
+ */
+export const CAPSULE_VERSION = 2;
+/** Versions this build can parse. */
+const SUPPORTED_CAPSULE_VERSIONS = new Set([1, CAPSULE_VERSION]);
 
 export interface RunCapsule {
   /** Format version, incremented on breaking schema changes. */
@@ -37,12 +45,23 @@ export interface RunCapsule {
   seed: string;
   difficulty: Difficulty;
   mode: GameMode;
+  /** RNG mode from the run config (seeded/manual/physical). */
+  rngMode?: RngMode;
   /** Party composition: class + suit + specialization per hero position. */
   party: {
     className: HeroClassName;
-    suit: Suit;
-    specialization: string;
+    /** Null when the original suit was never recorded (pre-v2 saves). */
+    suit: Suit | null;
+    specialization: string | null;
+    position?: HeroPosition;
   }[];
+  /**
+   * True when the capsule captures every field needed to exactly reproduce
+   * the run's starting conditions. False when any part of the original
+   * configuration (e.g. suit) was never recorded — an honest signal so an
+   * inexact capsule never masquerades as a fully reproducible one.
+   */
+  replayable: boolean;
   /** AI strategies (for sim/hybrid/batch modes). */
   strategies?: {
     combat?: CombatStrategy;
@@ -69,16 +88,27 @@ export interface RunCapsule {
  * if the run is finished, the outcome.
  */
 export function buildRunCapsule(state: GameState): RunCapsule {
-  const party = state.party.heroes.map((h) => {
-    // Suit is stored on APCs, not on HeroState directly.
-    // The first APC's suit is the hero's chosen suit.
-    const suit = (h.apcs[0]?.suit ?? h.permanentApcs[0]?.suit ?? "clubs") as Suit;
-    return {
-      className: h.className,
-      suit,
-      specialization: h.specialization,
-    };
-  });
+  // The immutable starting-party record is the authoritative source. It is
+  // written once at initializeGame and survives APC consumption, item use,
+  // and save/load. Saves that predate it have no reliable suit record —
+  // APC inference was speculative (consumed/replaced APCs, and clubs-vs-
+  // spades or hearts-vs-diamonds cannot be derived from specialization
+  // color), so the capsule reports suit: null and replayable: false rather
+  // than presenting a guess as replayable data.
+  const starting = state.startingParty;
+  const party = starting
+    ? starting.map((s) => ({
+        className: s.className,
+        suit: s.suit,
+        specialization: s.specialization,
+        position: s.position,
+      }))
+    : state.party.heroes.map((h) => ({
+        className: h.className,
+        suit: null,
+        specialization: h.specialization ?? null,
+        position: h.position,
+      }));
 
   const capsule: RunCapsule = {
     v: CAPSULE_VERSION,
@@ -87,10 +117,16 @@ export function buildRunCapsule(state: GameState): RunCapsule {
     seed: state.meta.seed,
     difficulty: state.meta.difficulty,
     mode: state.meta.mode,
+    rngMode: state.settings.rngMode,
     party,
+    replayable:
+      starting !== undefined &&
+      starting.length > 0 &&
+      party.every((p) => p.suit !== null),
     strategies: {
       combat: state.settings.combatStrategy,
       merchant: state.settings.merchantStrategy,
+      itemUsage: state.settings.itemUsageStrategy,
     },
     createdAt: new Date().toISOString(),
   };
@@ -121,6 +157,21 @@ export function parseCapsule(input: string): RunCapsule | null {
   try {
     const parsed = JSON.parse(input);
     if (!isValidCapsule(parsed)) return null;
+    // Normalize v1 capsules to the current schema: their party.suit values
+    // are strings (APC-inferred) and they carry no `replayable` flag. The
+    // suits the file asserts are kept as recorded.
+    if (parsed.v === 1) {
+      const party = (parsed.party as RunCapsule["party"]).map((p) => ({
+        ...p,
+        specialization: p.specialization ?? null,
+      }));
+      return {
+        ...(parsed as RunCapsule),
+        v: CAPSULE_VERSION,
+        party,
+        replayable: party.every((p) => p.suit !== null),
+      };
+    }
     return parsed as RunCapsule;
   } catch {
     return null;
@@ -128,24 +179,30 @@ export function parseCapsule(input: string): RunCapsule | null {
 }
 
 /**
- * Type guard / validator for capsule shape.
+ * Type guard / validator for capsule shape. Accepts v1 (legacy, string
+ * suits) and the current version (nullable suits + `replayable` flag).
  */
 export function isValidCapsule(value: unknown): value is RunCapsule {
   if (typeof value !== "object" || value === null) return false;
   const c = value as Record<string, unknown>;
-  if (c.v !== CAPSULE_VERSION) return false;
+  if (typeof c.v !== "number" || !SUPPORTED_CAPSULE_VERSIONS.has(c.v)) return false;
   if (c.type !== "skybreak-capsule") return false;
   if (typeof c.seed !== "string") return false;
   if (typeof c.difficulty !== "string") return false;
   if (typeof c.mode !== "string") return false;
   if (!Array.isArray(c.party)) return false;
   if (typeof c.createdAt !== "string") return false;
-  // Party entries must have className (string) and suit (string).
+  // Party entries must have className (string). suit is a string in v1 and
+  // string|null in v2.
   for (const entry of c.party) {
     if (typeof entry !== "object" || entry === null) return false;
     const e = entry as Record<string, unknown>;
     if (typeof e.className !== "string") return false;
-    if (typeof e.suit !== "string") return false;
+    if (c.v === 1) {
+      if (typeof e.suit !== "string") return false;
+    } else if (e.suit !== null && typeof e.suit !== "string") {
+      return false;
+    }
   }
   return true;
 }

@@ -26,12 +26,14 @@ export function RulesReference({ onBack }: Props) {
       <div className="relative z-10 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-display gold-text">📖 Rules Reference</h2>
+        <button className="btn-ghost text-xs" onClick={onBack}>Back to game</button>
       </div>
 
       <div className="glass-card p-4">
         <input
           className="input w-full"
           placeholder="Search rules..."
+          aria-label="Search rules"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -48,8 +50,8 @@ export function RulesReference({ onBack }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-4 space-y-2 max-h-[600px] overflow-y-auto">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="md:col-span-4 space-y-2 max-h-[300px] md:max-h-[600px] overflow-y-auto">
           {results.map((rule) => (
             <button
               key={rule.id}
@@ -69,7 +71,7 @@ export function RulesReference({ onBack }: Props) {
           )}
         </div>
 
-        <div className="lg:col-span-8">
+        <div className="md:col-span-8 min-w-0">
           {selected ? (
             <div className="glass-card p-6">
               <div className="text-xs text-spire-gold font-medium mb-1">Section {selected.section}</div>

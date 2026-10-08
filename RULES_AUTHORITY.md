@@ -126,3 +126,43 @@ Phase 3 commit.
   interpretable.
 - New discrepancies found during the Megaplan work should be appended as new
   numbered sections, not edited into existing ones.
+
+## 5. Stage 2 corrections — 2026-10-07 (America/New_York)
+
+Scope: the dirty Stage 1 working tree on `a2044d48358913c5eb49fa4719815ac4c12e4537`.
+These entries describe working-tree changes; no resolving commit is claimed.
+
+| Discrepancy | Authority and correction | Evidence | Status |
+|---|---|---|---|
+| Final boss omitted from rooms/score | Authored 10/12/10 sequence and existing scoring formula: resolve the last room before scoring; repeated resolution cannot grant more rewards | `stage2Playability`, four controlled campaigns in `stage2Integration` | implemented |
+| Nightmare defeat with surviving heroes advanced instead of ending | Canonical `checkCombatEnd` defeat must reach the campaign report regardless of surviving HP | `stage2Playability` | implemented |
+| Easy +2 HP disappeared during cleanup | Existing Easy starting bonus is persistent base HP, not a temporary combat buff | `stage2Playability` | implemented |
+| Speed Potion consumed without an extra action | `ITEMS["Speed Potion"].effect`: one additional hero action, consumed by turn completion | `stage2Playability` | implemented |
+| Power Scroll double-counted bonus | `ITEMS["Power Scroll"].effect`: exactly +3 next attack, once | `stage2Damage` | implemented |
+| Mystic Rune wrote an unused specialization flag | Existing specialization handlers own `spec_<class>_<specialization>`; the item activates that path | eight specialization fixtures in `stage2Content` | implemented |
+| Smoke Bomb inherited Bomb damage via substring matching | Canonical item IDs/tags take precedence; Smoke Bomb ends the current non-final encounter as retreat, without rewards | `stage2Integration` | implemented |
+| Damage and target logs disagreed after shields | Consume shields and report resolved damage; summon IDs address summons; main monster is not an alias for every enemy | `stage2Damage`, summon browser fixture | implemented |
+| Merchant labels omitted charged multipliers | `getMerchantPrice` now supplies transaction and display prices; floor/discount order preserved | pricing regressions and browser purchase/debit check | implemented |
+| Dead/full/invalid targets could be charged for healing | Validate eligibility before debit; Hard permanent death remains authoritative | `stage2Playability`, `stage2Content` | implemented |
+| Joker Major Potion purchasable for zero; higher weapons accessible too early | Joker remains deck loot; tier weapon availability enforced by transactions | `stage2Playability` | implemented |
+| Shared storage and over-capacity recovery lacked usable controls | Three hero slots plus Extra Pocket; two shared slots; retain canonical per-hero quantity limits; move existing consumable instances or confirm discard before leaving | inventory integration/browser fixtures | implemented |
+| Physical action die used by an earlier Freeze/escape check | Label first action override; secondary checks remain seeded; reject duplicate/invalid Peon cards and invalid d6 values | RNG/playability and physical browser fixtures | implemented |
+| New-game and interactive welcome RNG diverged from batch | Serialize after setup shuffles; cache dice/automatic weapon choices; use canonical seeded rewards and no invented skip penalty | RNG suites and welcome cache/parity integration fixtures | implemented |
+
+## 6. Decisions still required / implementation gaps
+
+| Topic | Observed implementation | Required decision or missing seam | Status |
+|---|---|---|---|
+| Merchant scaling | Explicit tier tables are multiplied again by accumulated tier-transition prices. `ruleAmbiguities.ts` prefers tables, while `rulesIndex.ts` also describes transition scaling | Decide whether both modifiers intentionally apply. Stage 2 preserves charged prices and makes labels truthful; no balance change | discrepancy |
+| Nightmare 40 turns | `checkCombatEnd` applies the limit inside the final confrontation; rules index says reach and survive Vyridian in 40 turns | Confirm encounter budget versus campaign budget before changing difficulty | discrepancy |
+| Final-boss stalemate retreat | There is no next room. Cleanup now leaves the unwon summit available, preventing an empty resolved-room softlock; no reward/victory is granted | Confirm retry versus terminal loss. Current navigation recovery is a provisional ruling | provisional |
+| Lucky Charm | Previously wrote `luckyCharmActive`, without a consumer or die-selection transaction | Define when a chosen die may be rerolled, including already-resolved effects. Purchase/use now reject with no debit/consumption | discrepancy / blocked |
+| Swift, Swift Blade, Reality Anchor | Swift and Swift Blade availability flags have no UI consumer; Reality Anchor has registration/tag but no engine ability consumer. Swift purchase now rejects without debit; merchant labels disclose unavailable weapon rerolls | Implement an explicit roll/choice/commit boundary; settle reroll eligibility and repeated ones. Full weapon/enchantment parity is incomplete | discrepancy / blocked |
+| Item sale for 25% | Rules index advertises sales; engine/UI have no sale operation and item instances have no purchase-price history | Define 25% of which price (paid, current tier, base, loot) and rounding/stack rules. Transfer/discard is implemented; sale is not | intended / blocked |
+| Rapid Fire split hits | Existing provisional ruling allows split targets; current hero action has one target | A second-hit target choice is missing; do not claim all ability targeting certified | discrepancy |
+| Physical tabletop scope | Only two Peon cards and the first action die are entered; secondary dice, decks, APC/environment setup, pets and extra actions remain seeded | UI explicitly states this scope. Complete physical deck control is outside the shipped bridge | implemented partial support |
+| Specialization art | Eight specialization files lack authoritative names/mappings; class portrait fallback is available | Reviewed asset mapping needed; anonymous art is not assigned by guess | unresolved |
+| Historical MVP data | New aggregate damage survives bounded logs; an old save's already-pruned events cannot be reconstructed | Existing retained events are the only legacy evidence; no invented totals | partial legacy support |
+
+Full rules parity is **not certified** by the Stage 2 smoke tests. See
+`STAGE2_REPORT.md` for the final verification boundary and content inventory.

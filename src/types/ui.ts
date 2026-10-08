@@ -62,4 +62,7 @@ export interface RunStats {
   mvpHeroId?: string;
   deadliestMonster?: string;
   bossPhaseReached?: string;
+  /** Persisted totals survive the bounded display log. */
+  damageByHero?: Record<string, number>;
+  damageByMonster?: Record<string, number>;
 }

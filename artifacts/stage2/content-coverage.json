@@ -1,0 +1,780 @@
+{
+  "classes": [
+    {
+      "name": "Bladedancer",
+      "image": "/assets/hero_portraits/class_portrait/bladedancer.webp",
+      "specializations": [
+        "Shadowblade",
+        "Runeblade"
+      ],
+      "coverage": "partially verified: six natural action rolls per specialization; selected edge regressions"
+    },
+    {
+      "name": "Manipulator",
+      "image": "/assets/hero_portraits/class_portrait/manipulator.webp",
+      "specializations": [
+        "Timebender",
+        "Illusionist"
+      ],
+      "coverage": "partially verified: six natural action rolls per specialization; selected edge regressions"
+    },
+    {
+      "name": "Tracker",
+      "image": "/assets/hero_portraits/class_portrait/tracker.webp",
+      "specializations": [
+        "Huntmaster",
+        "Beastcaller"
+      ],
+      "coverage": "partially verified: six natural action rolls per specialization; selected edge regressions"
+    },
+    {
+      "name": "Guardian",
+      "image": "/assets/hero_portraits/class_portrait/guardian.webp",
+      "specializations": [
+        "Sentinel",
+        "Warden"
+      ],
+      "coverage": "partially verified: six natural action rolls per specialization; selected edge regressions"
+    }
+  ],
+  "monsters": [
+    {
+      "id": 1,
+      "name": "Abyssal Ooze",
+      "image": "/assets/monsters/astril_sludge-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 2,
+      "name": "Treant",
+      "image": "/assets/monsters/rootbound_treant-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 3,
+      "name": "Glimmering Sprite",
+      "image": "/assets/monsters/prism.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 4,
+      "name": "Shadowy Assassin",
+      "image": "/assets/monsters/veilblade_stalkerrootbound_treant-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 5,
+      "name": "Banshee",
+      "image": "/assets/monsters/moonbound_oraclerootbound_treant-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 6,
+      "name": "Lunar Witch",
+      "image": "/assets/monsters/moonbound_oraclerootbound_treant-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 7,
+      "name": "Arcane Elemental",
+      "image": "/assets/monsters/resonant_elemental-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 8,
+      "name": "Phoenix",
+      "image": "/assets/monsters/emberglass_phoenix-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 9,
+      "name": "Gargoyle",
+      "image": "/assets/monsters/vault_gargoyle-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 10,
+      "name": "Cursed Knight",
+      "image": "/assets/monsters/oathbroken_ascender-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 11,
+      "name": "Minotaur",
+      "image": "/assets/monsters/mazehorn-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 12,
+      "name": "Chimera",
+      "image": "/assets/monsters/triune_chimera-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 13,
+      "name": "Ember Drake",
+      "image": "/assets/monsters/emberglass_drake-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 14,
+      "name": "Frost Wyrm",
+      "image": "/assets/monsters/rimeglass_wyrm-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 15,
+      "name": "Nano Prototype",
+      "image": "/assets/monsters/vy_assimilator_prototype-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 16,
+      "name": "Laser Turret",
+      "image": "/assets/monsters/laser_turret-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 17,
+      "name": "Behemoth",
+      "image": "/assets/monsters/starfall_behemoth-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 18,
+      "name": "Cyclops",
+      "image": "/assets/monsters/oculus_giant-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 19,
+      "name": "Dragon",
+      "image": "/assets/monsters/skyvault_dragon-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 20,
+      "name": "Titan",
+      "image": "/assets/monsters/threshold_titan-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    },
+    {
+      "id": 21,
+      "name": "Vyridian, the Astril Conductor",
+      "image": "/assets/monsters/vyridian-portrait.webp",
+      "coverage": "partially verified: six natural action rolls; asset and registration verified"
+    }
+  ],
+  "weapons": [
+    {
+      "id": "bd_common_1",
+      "name": "Swift Blade",
+      "image": "/assets/weapons/swiftblade.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_common_2",
+      "name": "Sharp Dagger",
+      "image": "/assets/weapons/sharpdagger.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_rare_1",
+      "name": "Frostbite Dagger",
+      "image": "/assets/weapons/frostbitedagger.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_rare_2",
+      "name": "Serpent's Kiss",
+      "image": "/assets/weapons/serpentskiss.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_epic_1",
+      "name": "Moonshadow Shiv",
+      "image": "/assets/weapons/moonshadowshiv.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_epic_2",
+      "name": "Voidcutter",
+      "image": "/assets/weapons/voidcutter.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_leg_1",
+      "name": "Starforged Blade",
+      "image": "/assets/weapons/starforgedblade.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "bd_leg_2",
+      "name": "Edge of Eclipse",
+      "image": "/assets/weapons/eclipsesedge.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_common_1",
+      "name": "Crystal Wand",
+      "image": "/assets/weapons/crystalwand.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_common_2",
+      "name": "Scholar's Staff",
+      "image": "/assets/weapons/scholarstaff.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_rare_1",
+      "name": "Astril Rod",
+      "image": "/assets/weapons/astrilrod.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_rare_2",
+      "name": "Aetherpulse",
+      "image": "/assets/weapons/mindprism.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_epic_1",
+      "name": "Celestial Scepter",
+      "image": "/assets/weapons/celestialscepter.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_epic_2",
+      "name": "Void Staff",
+      "image": "/assets/weapons/voidstaff.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_leg_1",
+      "name": "Eternal Starweaver",
+      "image": "/assets/weapons/eternalstarweaver.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "mp_leg_2",
+      "name": "Reality Anchor",
+      "image": "/assets/weapons/realityanchor.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_common_1",
+      "name": "Hunter's Bow",
+      "image": "/assets/weapons/huntersbow.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_common_2",
+      "name": "Sturdy Crossbow",
+      "image": "/assets/weapons/sturdycrossbow.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_rare_1",
+      "name": "Longshot",
+      "image": "/assets/weapons/longshot.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_rare_2",
+      "name": "Wild Bow",
+      "image": "/assets/weapons/wildbow.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_epic_1",
+      "name": "Thunderstrike",
+      "image": "/assets/weapons/thunderstrike.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_epic_2",
+      "name": "Beastmaster's Pride",
+      "image": "/assets/weapons/beastmasterspride.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_leg_1",
+      "name": "Voidwatcher",
+      "image": "/assets/weapons/dualaxis.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "tr_leg_2",
+      "name": "Twin Claws",
+      "image": "/assets/weapons/twinclaws.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_common_1",
+      "name": "Tower Shield",
+      "image": "/assets/weapons/towershield.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_common_2",
+      "name": "Soldier's Sword",
+      "image": "/assets/weapons/soldierssword.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_rare_1",
+      "name": "Stargazer Spear",
+      "image": "/assets/weapons/stargazerspear.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_rare_2",
+      "name": "Aegis Wall",
+      "image": "/assets/weapons/aegiswall.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_epic_1",
+      "name": "Fortress Gate",
+      "image": "/assets/weapons/fortressgate.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_epic_2",
+      "name": "Retributor",
+      "image": "/assets/weapons/retributor.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_leg_1",
+      "name": "Fyrizul",
+      "image": "/assets/weapons/wraithrevenant.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    },
+    {
+      "id": "gd_leg_2",
+      "name": "Eternal Vigil",
+      "image": "/assets/weapons/eternalvigil.webp",
+      "coverage": "partially verified: equip/action smoke; every passive interaction is not certified"
+    }
+  ],
+  "items": [
+    {
+      "id": "minor_potion",
+      "name": "Minor Potion",
+      "image": "/assets/items/minor_potion.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "major_potion",
+      "name": "Major Potion",
+      "image": "/assets/items/major_potion.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "guardian_angel",
+      "name": "Guardian Angel",
+      "image": "/assets/items/guardianangel.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "lucky_charm",
+      "name": "Lucky Charm",
+      "image": "/assets/items/luckycharm.webp",
+      "coverage": "blocked: reroll selection unimplemented; use/purchase disabled without debit"
+    },
+    {
+      "id": "mystic_rune",
+      "name": "Mystic Rune",
+      "image": "/assets/items/mysticrune.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "ability_blocker",
+      "name": "Ability Blocker",
+      "image": "/assets/items/abilityblocker.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "smoke_bomb",
+      "name": "Smoke Bomb",
+      "image": "/assets/items/reflector.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "treasure_map",
+      "name": "Treasure Map",
+      "image": "/assets/items/compass.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "power_scroll",
+      "name": "Power Scroll",
+      "image": "/assets/items/fiery_scroll.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "shield_charm",
+      "name": "Shield Charm",
+      "image": "/assets/items/reflector.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "speed_potion",
+      "name": "Speed Potion",
+      "image": "/assets/items/shinytablet.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    },
+    {
+      "id": "bomb",
+      "name": "Bomb",
+      "image": "/assets/enchants/explosive.webp",
+      "coverage": "fixed and verified: use smoke; focused item effect regressions"
+    }
+  ],
+  "rooms": [
+    {
+      "index": 0,
+      "roomId": "t1_00_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 1,
+      "roomId": "t1_01_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 2,
+      "roomId": "t1_02_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 3,
+      "roomId": "t1_03_rest",
+      "type": "rest",
+      "symbol": "❤️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 4,
+      "roomId": "t1_04_split",
+      "type": "split",
+      "symbol": "X/Y",
+      "tier": 1,
+      "resolved": false,
+      "splitOptions": [
+        {
+          "index": 0,
+          "roomId": "t1_04_split_split_0_elite_combat",
+          "type": "elite_combat",
+          "symbol": "♠️",
+          "tier": 1,
+          "resolved": false
+        },
+        {
+          "index": 1,
+          "roomId": "t1_04_split_split_1_combat",
+          "type": "combat",
+          "symbol": "♣️",
+          "tier": 1,
+          "resolved": false
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "roomId": "t1_05_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 6,
+      "roomId": "t1_06_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 7,
+      "roomId": "t1_07_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 8,
+      "roomId": "t1_08_elite_combat",
+      "type": "elite_combat",
+      "symbol": "♠️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 9,
+      "roomId": "t1_09_rest",
+      "type": "rest",
+      "symbol": "❤️",
+      "tier": 1,
+      "resolved": false
+    },
+    {
+      "index": 0,
+      "roomId": "t2_00_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 1,
+      "roomId": "t2_01_elite_combat",
+      "type": "elite_combat",
+      "symbol": "♠️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 2,
+      "roomId": "t2_02_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 3,
+      "roomId": "t2_03_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 4,
+      "roomId": "t2_04_rest",
+      "type": "rest",
+      "symbol": "❤️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 5,
+      "roomId": "t2_05_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 6,
+      "roomId": "t2_06_split",
+      "type": "split",
+      "symbol": "X/Y",
+      "tier": 2,
+      "resolved": false,
+      "splitOptions": [
+        {
+          "index": 0,
+          "roomId": "t2_06_split_split_0_elite_combat",
+          "type": "elite_combat",
+          "symbol": "♠️",
+          "tier": 2,
+          "resolved": false
+        },
+        {
+          "index": 1,
+          "roomId": "t2_06_split_split_1_combat",
+          "type": "combat",
+          "symbol": "♣️",
+          "tier": 2,
+          "resolved": false
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "roomId": "t2_07_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 8,
+      "roomId": "t2_08_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 9,
+      "roomId": "t2_09_mini_boss",
+      "type": "mini_boss",
+      "symbol": "♠️🌟",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 10,
+      "roomId": "t2_10_rest",
+      "type": "rest",
+      "symbol": "❤️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 11,
+      "roomId": "t2_11_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 2,
+      "resolved": false
+    },
+    {
+      "index": 0,
+      "roomId": "t3_00_elite_combat",
+      "type": "elite_combat",
+      "symbol": "♠️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 1,
+      "roomId": "t3_01_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 2,
+      "roomId": "t3_02_rest",
+      "type": "rest",
+      "symbol": "❤️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 3,
+      "roomId": "t3_03_merchant",
+      "type": "merchant",
+      "symbol": "♦️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 4,
+      "roomId": "t3_04_mini_boss",
+      "type": "mini_boss",
+      "symbol": "♠️🌟",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 5,
+      "roomId": "t3_05_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 6,
+      "roomId": "t3_06_combat",
+      "type": "combat",
+      "symbol": "♣️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 7,
+      "roomId": "t3_07_split",
+      "type": "split",
+      "symbol": "X/Y",
+      "tier": 3,
+      "resolved": false,
+      "splitOptions": [
+        {
+          "index": 0,
+          "roomId": "t3_07_split_split_0_merchant",
+          "type": "merchant",
+          "symbol": "♦️",
+          "tier": 3,
+          "resolved": false
+        },
+        {
+          "index": 1,
+          "roomId": "t3_07_split_split_1_rest",
+          "type": "rest",
+          "symbol": "❤️",
+          "tier": 3,
+          "resolved": false
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "roomId": "t3_08_elite_combat",
+      "type": "elite_combat",
+      "symbol": "♠️",
+      "tier": 3,
+      "resolved": false
+    },
+    {
+      "index": 9,
+      "roomId": "t3_09_final_boss",
+      "type": "final_boss",
+      "symbol": "🏰",
+      "tier": 3,
+      "resolved": false
+    }
+  ],
+  "permanentUpgrades": [
+    "HP Increase",
+    "Lucky Dice",
+    "Extra Pocket",
+    "Party Fund"
+  ],
+  "healingServices": [
+    "Patch Up",
+    "First Aid",
+    "Group Heal",
+    "Full Restore",
+    "Revive 50%",
+    "Revive Full"
+  ],
+  "weaponServices": [
+    "Identify",
+    "Upgrade",
+    "Reforge",
+    "Repair"
+  ],
+  "enchantments": [
+    "Swift",
+    "Mighty",
+    "Vampiric",
+    "Explosive",
+    "Precise",
+    "Defensive",
+    "Ethereal",
+    "Chaotic",
+    "Divine",
+    "Toxic"
+  ]
+}

@@ -1,10 +1,10 @@
 import type { GameMode, Difficulty, SimulationConfig } from "./simulation";
 import type { GameEvent, RandomEvent } from "./events";
-import type { HeroState } from "./heroes";
+import type { HeroState, HeroClassName, HeroPosition, HeroId } from "./heroes";
 import type { CombatState } from "./combat";
 import type { ItemInstance } from "./inventory";
 import type { RunStats, ScoreResult, AppliedRuling } from "./ui";
-import type { DeckManager } from "./cards";
+import type { DeckManager, Suit } from "./cards";
 
 export type GamePhase =
   | "setup"
@@ -59,6 +59,20 @@ export interface SpireState {
   merchantPriceMultiplier: number;
 }
 
+/**
+ * Immutable record of one hero's original configuration at run creation.
+ * Written once by initializeGame and never mutated afterwards. Used by
+ * Ascent Capsules to reproduce the run's exact starting conditions —
+ * unlike APCs, this survives combat consumption and APC transformation.
+ */
+export interface StartingHeroConfig {
+  heroId: HeroId;
+  className: HeroClassName;
+  suit: Suit;
+  position: HeroPosition;
+  specialization: string;
+}
+
 export interface PartyState {
   gold: number;
   sharedInventory: ItemInstance[];
@@ -94,6 +108,13 @@ export interface GameState {
 
   party: PartyState;
 
+  /**
+   * The run's original party configuration, recorded at initializeGame time.
+   * Absent in saves that predate this field — consumers must treat absence
+   * as "unknown" (not reconstructible), never guess from mutable state.
+   */
+  startingParty?: StartingHeroConfig[];
+
   combat?: CombatState;
 
   merchant?: MerchantState;
@@ -109,6 +130,9 @@ export interface GameState {
   score?: ScoreResult;
 
   welcomeBonusPending?: boolean;
+  /** Seeded welcome dice already rolled; retained across save/resume. */
+  welcomeBonusRolls?: { heroId: number; die1: number; die2: number }[];
+  welcomeBonusWeaponChoices?: Record<string, string>;
 
   deckManager?: DeckManager;
 }

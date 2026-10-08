@@ -8,6 +8,7 @@ interface InteractiveDiceRollerProps {
   onResult: (values: number[]) => void;
   autoPlay?: boolean;
   disabled?: boolean;
+  resolveValues?: () => number[];
 }
 
 type RollerState = "idle" | "charging" | "dragging" | "rolling" | "settled";
@@ -81,6 +82,7 @@ export function InteractiveDiceRoller({
   onResult,
   autoPlay,
   disabled,
+  resolveValues,
 }: InteractiveDiceRollerProps) {
   const [state, setState] = useState<RollerState>("idle");
   const [chargeLevel, setChargeLevel] = useState(0);
@@ -203,7 +205,8 @@ export function InteractiveDiceRoller({
         values.push(weightedRoll(weights));
       }
     }
-    finalValuesRef.current = values;
+    // The animation may wander; gameplay outcomes belong to the seeded engine.
+    finalValuesRef.current = resolveValues ? resolveValues() : values;
     rainbowRef.current = rainbows;
     setShowRainbow(rainbows.some((r) => r));
 
@@ -232,7 +235,7 @@ export function InteractiveDiceRoller({
     setDice(newDice);
     setState("rolling");
     animStartRef.current = Date.now();
-  }, [diceCount, playSfx]);
+  }, [diceCount, playSfx, resolveValues]);
 
   useEffect(() => {
     if (state !== "rolling") return;

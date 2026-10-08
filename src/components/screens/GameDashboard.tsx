@@ -40,6 +40,7 @@ export function GameDashboard({ onNavigate }: Props) {
   const doStartCombat = useGameStore((s) => s.doStartCombat);
   const doResolveRoom = useGameStore((s) => s.doResolveRoom);
   const doEnterMerchant = useGameStore((s) => s.doEnterMerchant);
+  const doEnterRest = useGameStore((s) => s.doEnterRest);
   const { playMusic, playSfx } = useAudio();
   const [eventLogExpanded, setEventLogExpanded] = useState(true);
   const [merchantCooldown, setMerchantCooldown] = useState(0);
@@ -107,6 +108,7 @@ export function GameDashboard({ onNavigate }: Props) {
       doEnterMerchant();
       onNavigate("merchant");
     } else if (room.type === "rest") {
+      doEnterRest();
       onNavigate("rest");
     }
   };

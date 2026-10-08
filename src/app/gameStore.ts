@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { GameState } from "../types/gameState";
 import type { SimulationConfig } from "../types/simulation";
 import { RngEngine } from "../utils/random";
+import { moveInventoryItem, discardInventoryItem } from "../engine/inventoryEngine";
+import { getWeaponsByClassAndRarity } from "../data/weapons";
 import {
   initializeGame,
   createDefaultConfig,
@@ -22,7 +24,7 @@ import {
   detectMatches,
 } from "../engine/combatEngine";
 import { executeMonsterTurn } from "../engine/monsterAbilityEngine";
-import { executeHeroAction, useItem } from "../engine/heroAbilityEngine";
+import { executeHeroAction, useItem, getItemUseRejection } from "../engine/heroAbilityEngine";
 import {
   enterMerchant,
   buyItem,
@@ -38,7 +40,7 @@ import {
 } from "../engine/merchantEngine";
 import { resolveRestChoice, resolveCombatRoom } from "../engine/progressionEngine";
 import { validateState } from "../engine/validationEngine";
-import { autosave, saveGame } from "../engine/saveLoad";
+import { autosave, saveGame, hydrateSave } from "../engine/saveLoad";
 import { emitEvent, resetEventSequence } from "../engine/eventLog";
 import { generateSeed, resetIdCounter } from "../utils/ids";
 import { useHybridStore } from "./hybridStore";
@@ -101,6 +103,10 @@ interface GameStore {
   state: GameState | null;
   rng: RngEngine | null;
   validationWarnings: { id: string; message: string; severity: string }[];
+  /** Error from the most recent failed doLoadState call (null when the last
+   *  load succeeded or none has been attempted). */
+  loadError: string | null;
+  actionError: string | null;
   // Internal plumbing: a monotonically increasing session epoch guards stale
   // delayed monster-turn timers from mutating a replacement run after a
   // reset/load/new-run. monsterTurnTimer tracks the single pending timer so it
@@ -117,6 +123,7 @@ interface GameStore {
   doHeroAction: (heroId: string, action: string, targetId?: string) => void;
   doHeroActionPhysical: (heroId: string, action: string, targetId: string, cards: import("../types/cards").Card[], rolls: number[]) => void;
   doMonsterTurnPhysical: (cards: import("../types/cards").Card[], rolls: number[]) => void;
+  doSetRngMode: (mode: "seeded" | "physical") => void;
   doUseItem: (heroId: string, itemName: string, targetId?: string) => void;
   doEndTurn: (heroId: string) => void;
   doMonsterTurn: () => void;
@@ -132,13 +139,25 @@ interface GameStore {
   doAutoBuy: () => void;
   doLeaveMerchant: () => void;
   doRestChoice: (choice: 1 | 2 | 3 | 4) => void;
+  doEnterRest: () => void;
+  doMoveInventoryItem: (itemId: string, recipientId?: string) => void;
+  doDiscardInventoryItem: (itemId: string) => void;
   doConfirmTierTransition: () => void;
   doResolveRoom: () => void;
   doManualOverride: (path: string, value: any) => void;
   doForceCombatResult: (result: "victory" | "defeat" | "retreat") => void;
-  doLoadState: (state: GameState) => void;
+  /**
+   * Canonical store-installation boundary for externally supplied game state.
+   * Accepts a bare GameState, a SaveData envelope, or a JSON string; all are
+   * routed through hydrateSave (validate → migrate → RNG check) before the
+   * store session is replaced. Returns true on success; on failure the
+   * current session is left untouched and loadError is set.
+   */
+  doLoadState: (input: GameState | unknown) => boolean;
   doSaveGame: (name: string) => boolean;
   doApplyWelcomeBonus: (results: WelcomeBonusRollResult[]) => void;
+  doRollWelcomeBonus: (heroId: number) => number[];
+  doChooseWelcomeWeapon: (heroId: number) => string | null;
   doResetGame: () => void;
   runValidation: () => void;
 }
@@ -147,6 +166,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   state: null,
   rng: null,
   validationWarnings: [],
+  loadError: null,
+  actionError: null,
   sessionEpoch: 0,
   monsterTurnTimer: null,
 
@@ -156,13 +177,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     bumpSessionEpoch();
     const fullConfig = applyModeDefaults(createDefaultConfig(config));
     const state = initializeGame(fullConfig, partyChoices);
-    const rng = new RngEngine(fullConfig.seed);
-    set({ state, rng, validationWarnings: [] });
+    const rng = RngEngine.deserialize(state.rng!);
+    useHybridStore.getState().resetAIControl();
+    set({ state, rng, validationWarnings: [], loadError: null, actionError: null });
   },
 
   doAdvanceRoom: () => {
     const { state, rng } = get();
     if (!state || !rng) return;
+    if (state.welcomeBonusPending || state.phase === "tier_transition" || state.phase === "victory" || state.phase === "defeat" || !state.spire.currentRoom?.resolved) return;
     const newState = advanceRoom(state);
     set({ state: newState });
     autosave(newState);
@@ -171,6 +194,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doResolveSplit: (choiceIndex) => {
     const { state, rng } = get();
     if (!state || !rng) return;
+    if (state.welcomeBonusPending || !state.spire.splitChoicePending || state.phase === "tier_transition" || state.phase === "victory" || state.phase === "defeat") return;
     const newState = resolveSplitChoice(state, choiceIndex, rng);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -180,6 +204,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doStartCombat: (options) => {
     const { state, rng } = get();
     if (!state || !rng) return;
+    const room = state.spire.currentRoom;
+    if (state.welcomeBonusPending || state.combat || state.phase === "tier_transition" || state.phase === "victory" || state.phase === "defeat" || !room || room.resolved || !["combat", "elite_combat", "mini_boss", "final_boss"].includes(room.type)) return;
+    options = { isElite: room.type === "elite_combat", isMiniBoss: room.type === "mini_boss", isFinalBoss: room.type === "final_boss" };
 
     // Smoke Bomb: skip combat room
     const hasSmokeBomb = state.party.heroes.some(h => h.alive && h.perTurnFlags["smokeBombActive"]);
@@ -211,6 +238,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doBeginCombat: () => {
     const { state, rng } = get();
     if (!state || !rng || !state.combat) return;
+    if (state.combat.combatResult) return;
     if (state.combat.activeSide !== "monster") return;
     // Monster goes first per rules 6.2.
     // In simulation mode, execute synchronously (no UI pacing needed).
@@ -247,6 +275,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doHeroAction: (heroId, action, targetId) => {
     const { state, rng } = get();
     if (!state || !rng || !state.combat) return;
+    if (state.combat.combatResult || action !== "attack") return;
     if (state.combat.activeSide !== "heroes") return;
     if (state.combat.completedHeroTurns.includes(heroId)) return;
 
@@ -297,31 +326,57 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   doHeroActionPhysical: (heroId, action, targetId, cards, rolls) => {
-    const { rng } = get();
-    if (!rng) return;
-    rng.setPhysicalCards(cards);
-    rng.setPhysicalRolls(rolls);
-    get().doHeroAction(heroId, action, targetId);
-    rng.clearPhysicalOverrides();
+    const { rng, state } = get();
+    const hero = state?.party.heroes.find(h => h.id === heroId);
+    if (!rng || !state?.combat || !hero || state.combat.combatResult || state.combat.activeSide !== "heroes") return;
+    try {
+      if (rolls.length !== 1) throw new Error("Enter one action die; secondary checks use seeded RNG.");
+      rng.setPhysicalCards(cards);
+      rng.setPhysicalActionRoll(`hero_action_${hero.name}`, rolls[0]);
+      set({ actionError: null });
+      get().doHeroAction(heroId, action, targetId);
+    } catch (error) { set({ actionError: error instanceof Error ? error.message : "Invalid physical inputs." }); }
+    finally { rng.clearPhysicalOverrides(); }
   },
 
   doMonsterTurnPhysical: (cards, rolls) => {
-    const { rng } = get();
-    if (!rng) return;
-    rng.setPhysicalCards(cards);
-    rng.setPhysicalRolls(rolls);
-    get().doMonsterTurn();
-    rng.clearPhysicalOverrides();
+    const { rng, state } = get();
+    if (!rng || !state?.combat || state.combat.combatResult || state.combat.activeSide !== "monster") return;
+    try {
+      if (rolls.length !== 1) throw new Error("Enter one action die; secondary checks use seeded RNG.");
+      rng.setPhysicalCards(cards);
+      rng.setPhysicalActionRoll(`monster_action_${state.combat.monster.name}`, rolls[0]);
+      set({ actionError: null });
+      get().doMonsterTurn();
+    } catch (error) { set({ actionError: error instanceof Error ? error.message : "Invalid physical inputs." }); }
+    finally { rng.clearPhysicalOverrides(); }
+  },
+
+  doSetRngMode: (mode) => {
+    const { state } = get();
+    if (!state || state.phase === "victory" || state.phase === "defeat" || state.settings.rngMode === mode) return;
+    bumpSessionEpoch();
+    get().rng?.clearPhysicalOverrides();
+    const next = { ...state, settings: { ...state.settings, rngMode: mode } };
+    set({ state: next, actionError: null }); autosave(next);
+    if (mode === "seeded" && next.combat?.activeSide === "monster" && !next.combat.combatResult) scheduleMonsterTurn();
   },
 
   doUseItem: (heroId, itemName, targetId) => {
     const { state, rng } = get();
     if (!state || !state.combat) return;
+    if (state.combat.combatResult) return;
     // In sandbox mode, allow item use even when it's not the hero's turn
     if (!state.settings.allowIllegalOverride) {
       if (state.combat.activeSide !== "heroes") return;
       if (state.combat.completedHeroTurns.includes(heroId)) return;
+      const nextHeroId = state.combat.heroTurnOrder.find(id =>
+        !state.combat!.completedHeroTurns.includes(id) && getHeroById(state, id)?.alive);
+      if (heroId !== nextHeroId) return;
     }
+    const rejection = getItemUseRejection(state, heroId, itemName);
+    if (rejection) { set({ actionError: rejection }); return; }
+    set({ actionError: null });
     const itemState = useItem(state, heroId, itemName, targetId, rng ?? undefined);
     // Canonical post-action terminal check (Bomb can kill — shared with headless)
     const newState = checkAndSetCombatEnd(itemState);
@@ -372,6 +427,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doMonsterTurn: () => {
     const { state, rng } = get();
     if (!state || !rng || !state.combat) return;
+    if (state.combat.combatResult) return;
     if (state.combat.activeSide !== "monster") return;
     const newState = executeMonsterTurn(state, rng);
     const finalState = withRng(newState, rng);
@@ -382,6 +438,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doEnterMerchant: () => {
     const { state, rng } = get();
     if (!state) return;
+    if (state.welcomeBonusPending || state.combat || state.phase === "merchant" || state.phase === "tier_transition" || state.phase === "victory" || state.phase === "defeat" || state.spire.currentRoom?.type !== "merchant" || state.spire.currentRoom.resolved) return;
     const newState = enterMerchant(state);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -390,7 +447,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doBuyItem: (itemName, heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = buyItem(state, itemName, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -399,7 +456,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doBuyHealing: (serviceName, targetHeroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = buyHealing(state, serviceName, targetHeroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -408,7 +465,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doBuyUpgrade: (upgradeName, heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = buyUpgrade(state, upgradeName, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -417,7 +474,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doBuyWeapon: (weaponName, heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = buyWeapon(state, weaponName, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -426,7 +483,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doUpgradeWeapon: (heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = upgradeWeapon(state, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -435,7 +492,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doReforgeWeapon: (heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = reforgeWeapon(state, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -444,7 +501,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doRepairWeapon: (heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = repairWeapon(state, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -453,7 +510,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doBuyEnchantment: (enchantmentName, heroId) => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = buyEnchantment(state, enchantmentName, heroId);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -462,7 +519,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doAutoBuy: () => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase !== "merchant" || !state.merchant) return;
     const newState = autoBuy(state);
     const finalState = withRng(newState, rng);
     set({ state: finalState });
@@ -472,7 +529,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doLeaveMerchant: () => {
     const { state, rng } = get();
     if (!state) return;
+    if (state.phase !== "merchant" || !state.merchant || state.spire.currentRoom?.type !== "merchant" || state.spire.currentRoom.resolved) return;
     const newState = leaveMerchant(state);
+    if (newState === state) { set({ actionError: "Resolve over-capacity inventory before leaving: move an item into shared storage, give it to another hero, or discard it." }); return; }
     const resolved = markRoomResolved(newState);
     const advanced = advanceRoom(resolved);
     const finalState = withRng(advanced, rng);
@@ -480,9 +539,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     autosave(finalState);
   },
 
+  doEnterRest: () => {
+    const { state } = get();
+    if (!state || state.phase !== "exploration" || state.welcomeBonusPending || state.spire.currentRoom?.type !== "rest" || state.spire.currentRoom.resolved) return;
+    const next: GameState = { ...state, phase: "rest" };
+    set({ state: next });
+    autosave(next);
+  },
+
+  doMoveInventoryItem: (itemId, recipientId) => {
+    const { state } = get();
+    if (!state || state.phase !== "merchant") return;
+    const next = moveInventoryItem(state, itemId, recipientId);
+    set({ state: next, actionError: next === state ? "The recipient has no room for this item or has reached its stack limit." : null });
+    autosave(next);
+  },
+
+  doDiscardInventoryItem: (itemId) => {
+    const { state } = get();
+    if (!state || state.phase !== "merchant") return;
+    const next = discardInventoryItem(state, itemId);
+    set({ state: next, actionError: null });
+    autosave(next);
+  },
+
   doRestChoice: (choice) => {
     const { state, rng } = get();
     if (!state || !rng) return;
+    if (state.welcomeBonusPending || state.combat || state.phase === "tier_transition" || state.phase === "victory" || state.phase === "defeat" || state.spire.currentRoom?.type !== "rest" || state.spire.currentRoom.resolved || ![1, 2, 3, 4].includes(choice)) return;
     const newState = resolveRestChoice(state, choice, rng);
     const resolved = markRoomResolved(newState);
     const advanced = advanceRoom(resolved);
@@ -503,7 +587,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   doResolveRoom: () => {
     const { state, rng } = get();
-    if (!state) return;
+    if (!state || state.phase === "victory" || state.phase === "defeat" || !state.combat?.combatResult) return;
     // Delegate to the shared terminal resolver so the playable and batch
     // paths have identical combat room resolution semantics.
     const result = resolveCombatRoom(state);
@@ -557,23 +641,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
     autosave(finalState);
   },
 
-  doLoadState: (loadedState) => {
-    // Validate the loaded state has the minimum required shape
-    if (!loadedState || typeof loadedState !== "object") return;
-    if (!loadedState.party || !Array.isArray(loadedState.party.heroes)) return;
-    if (!loadedState.meta || !loadedState.spire) return;
+  doLoadState: (input) => {
+    // Canonical hydration boundary: structural validation + legacy migration
+    // + RNG ownership checks happen inside hydrateSave, shared by every
+    // entry point (manual saves, autosaves, imports, Continue Run, tests).
+    const result = hydrateSave(input);
+    if (!result.ok) {
+      set({ loadError: result.error });
+      return false;
+    }
+    const loadedState = result.state;
     // Invalidate any pending delayed monster-turn timer from the prior run.
     bumpSessionEpoch();
-    // Reconstruct RNG from serialized state (or create a fallback)
+    // Reconstruct RNG from the serialized position. When the save carried no
+    // usable RNG, rebuild deterministically from the run seed — never from
+    // wall-clock time, so replay behavior stays seed-derived.
     let rng: RngEngine;
     try {
       rng = loadedState.rng
         ? RngEngine.deserialize(loadedState.rng)
-        : new RngEngine(`fallback-${Date.now()}`);
+        : new RngEngine(loadedState.meta?.seed || "skybreak-restored");
     } catch {
-      rng = new RngEngine(`fallback-${Date.now()}`);
+      rng = new RngEngine(loadedState.meta?.seed || "skybreak-restored");
     }
-    set({ state: loadedState, rng, validationWarnings: [] });
+    useHybridStore.getState().resetAIControl();
+    set({ state: loadedState, rng, validationWarnings: [], loadError: null, actionError: null });
+    if (loadedState.combat?.activeSide === "monster" && !loadedState.combat.combatResult && loadedState.settings.mode !== "simulation") scheduleMonsterTurn();
+    return true;
   },
 
   doSaveGame: (name) => {
@@ -585,10 +679,43 @@ export const useGameStore = create<GameStore>((set, get) => ({
   doApplyWelcomeBonus: (results) => {
     const { state, rng } = get();
     if (!state || !rng) return;
+    if (!state.welcomeBonusPending || results.length !== state.party.heroes.length || new Set(results.map(r => r.heroId)).size !== results.length || results.some(r => !state.party.heroes.some(h => h.heroId === r.heroId) || ![r.die1, r.die2].every(d => Number.isInteger(d) && d >= 1 && d <= 6))) return;
     const newState = applyWelcomeBonusResults(state, results, rng);
     const finalState = withRng({ ...newState, welcomeBonusPending: false }, rng);
     set({ state: finalState });
     autosave(finalState);
+  },
+
+  doRollWelcomeBonus: (heroId) => {
+    const { state, rng } = get();
+    if (!state?.welcomeBonusPending || !rng) return [];
+    const hero = state.party.heroes.find(h => h.heroId === heroId);
+    if (!hero) return [];
+    const previous = state.welcomeBonusRolls?.find(r => r.heroId === heroId);
+    if (previous) return [previous.die1, previous.die2];
+    const die1 = rng.rollD6(`wb_die1_${hero.name}`).total;
+    const die2 = rng.rollD6(`wb_die2_${hero.name}`).total;
+    const next = withRng({ ...state, welcomeBonusRolls: [...(state.welcomeBonusRolls ?? []), { heroId, die1, die2 }] }, rng);
+    set({ state: next }); autosave(next);
+    return [die1, die2];
+  },
+
+  doChooseWelcomeWeapon: (heroId) => {
+    const { state, rng } = get();
+    if (!state?.welcomeBonusPending || !rng) return null;
+    const hero = state.party.heroes.find(h => h.heroId === heroId);
+    const roll = state.welcomeBonusRolls?.find(r => r.heroId === heroId);
+    if (!hero || !roll || roll.die1 + roll.die2 < 6) return null;
+    const total = roll.die1 + roll.die2;
+    const options = getWeaponsByClassAndRarity(hero.className, total >= 11 ? "Rare" : "Common");
+    if (!options.length) return null;
+    const cached = state.welcomeBonusWeaponChoices?.[String(heroId)];
+    if (options.some(w => w.id === cached)) return cached!;
+    const label = total >= 11 ? "rare" : total >= 9 ? "common" : "common2";
+    const chosen = options[rng.rollD6(`wb_${label}_${hero.name}`).total % options.length];
+    const next = withRng({ ...state, welcomeBonusWeaponChoices: { ...state.welcomeBonusWeaponChoices, [heroId]: chosen.id } }, rng);
+    set({ state: next }); autosave(next);
+    return chosen.id;
   },
 
   doResetGame: () => {
@@ -599,7 +726,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     bumpSessionEpoch();
     // Reset hybrid AI control state so a new run starts with a clean toggle.
     useHybridStore.getState().resetAIControl();
-    set({ state: null, rng: null, validationWarnings: [] });
+    set({ state: null, rng: null, validationWarnings: [], loadError: null, actionError: null });
   },
 
   runValidation: () => {

@@ -36,6 +36,7 @@ export class RngEngine {
   private physicalRollQueue: number[] = [];
   // Physical cards for the next flipPeonCards call. Cleared after use.
   private physicalCardsOverride: import("../types/cards").Card[] | null = null;
+  private physicalActionRoll: { label: string; value: number } | null = null;
 
   constructor(seed: string) {
     this.seed = seed;
@@ -77,12 +78,24 @@ export class RngEngine {
 
   /** Queue physical die results to be consumed by future rollD6 calls. */
   setPhysicalRolls(values: number[]): void {
+    if (values.some(value => !Number.isInteger(value) || value < 1 || value > 6)) {
+      throw new Error("Physical dice must be integers from 1 to 6.");
+    }
     this.physicalRollQueue = [...values];
   }
 
   /** Set physical cards for the next flipPeonCards call. */
   setPhysicalCards(cards: import("../types/cards").Card[]): void {
+    if (cards.length !== 2 || cards.some(c => c.deckType !== "peon" || !["clubs", "diamonds", "hearts", "spades"].includes(c.suit) || !["2", "3", "4", "5", "6", "7", "8", "9", "10"].includes(c.rank)) || (cards[0].suit === cards[1].suit && cards[0].rank === cards[1].rank)) {
+      throw new Error("Enter two different Peon cards (2 through 10).");
+    }
     this.physicalCardsOverride = [...cards];
+  }
+
+  /** The UI's action die must not be consumed by Freeze/Trap/other checks. */
+  setPhysicalActionRoll(label: string, value: number): void {
+    if (!Number.isInteger(value) || value < 1 || value > 6) throw new Error("Physical dice must be integers from 1 to 6.");
+    this.physicalActionRoll = { label, value };
   }
 
   /** Get and clear the physical cards override (called by flipPeonCards). */
@@ -101,6 +114,7 @@ export class RngEngine {
   clearPhysicalOverrides(): void {
     this.physicalRollQueue = [];
     this.physicalCardsOverride = null;
+    this.physicalActionRoll = null;
   }
 
   private pushHistory(event: RandomEvent): void {
@@ -111,16 +125,21 @@ export class RngEngine {
   }
 
   rollD6(label: string = "d6"): DiceResult {
+    const step = this.step;
     let raw: number;
     let physical = false;
-    if (this.physicalRollQueue.length > 0) {
+    if (this.physicalActionRoll?.label === label) {
+      raw = this.physicalActionRoll.value;
+      this.physicalActionRoll = null;
+      physical = true;
+    } else if (this.physicalRollQueue.length > 0) {
       raw = this.physicalRollQueue.shift()!;
       physical = true;
     } else {
       raw = Math.floor(this.next() * 6) + 1;
     }
     this.pushHistory({
-      step: this.step - 1,
+      step,
       type: physical ? "d6-physical" : "d6",
       label,
       result: raw,
@@ -131,11 +150,12 @@ export class RngEngine {
       total: raw,
       modifiedTotal: raw,
       modifiers: [],
-      step: this.step - 1,
+      step,
     };
   }
 
   roll2D6(label: string = "2d6"): DiceResult {
+    const step = this.step;
     let r1: number, r2: number;
     let physical = false;
     if (this.physicalRollQueue.length >= 2) {
@@ -148,7 +168,7 @@ export class RngEngine {
     }
     const total = r1 + r2;
     this.pushHistory({
-      step: this.step - 2,
+      step,
       type: physical ? "2d6-physical" : "2d6",
       label,
       result: [r1, r2],
@@ -159,7 +179,7 @@ export class RngEngine {
       total,
       modifiedTotal: total,
       modifiers: [],
-      step: this.step - 2,
+      step,
     };
   }
 

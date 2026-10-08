@@ -11,12 +11,13 @@ const SPEED_DELAYS: Record<number, number> = {
   8: 150,
 };
 
-export function useAutoPlay() {
+export function useAutoPlay(enabled = true) {
   const state = useGameStore((s) => s.state);
   const rng = useGameStore((s) => s.rng);
   const doResolveSplit = useGameStore((s) => s.doResolveSplit);
   const doStartCombat = useGameStore((s) => s.doStartCombat);
   const doBeginCombat = useGameStore((s) => s.doBeginCombat);
+  const doMonsterTurn = useGameStore((s) => s.doMonsterTurn);
   const doHeroAction = useGameStore((s) => s.doHeroAction);
   const doUseItem = useGameStore((s) => s.doUseItem);
   const doEndTurn = useGameStore((s) => s.doEndTurn);
@@ -84,8 +85,9 @@ export function useAutoPlay() {
         return;
       }
 
-      if (combat.activeSide === "monster" && combat.turnCount === 0) {
-        doBeginCombat();
+      if (combat.activeSide === "monster") {
+        if (combat.turnCount === 0) doBeginCombat();
+        else doMonsterTurn();
         return;
       }
 
@@ -161,20 +163,20 @@ export function useAutoPlay() {
 
     doAdvanceRoom();
   }, [
-    doResolveSplit, doStartCombat, doBeginCombat, doHeroAction, doUseItem,
+    doResolveSplit, doStartCombat, doBeginCombat, doMonsterTurn, doHeroAction, doUseItem,
     doEndTurn, doResolveRoom, doEnterMerchant, doBuyItem, doBuyUpgrade,
     doBuyHealing, doLeaveMerchant, doRestChoice, doAdvanceRoom,
     doConfirmTierTransition, playSfx,
   ]);
 
   useEffect(() => {
-    if (!isSimMode || !isPlaying) return;
+    if (!enabled || !isSimMode || !isPlaying) return;
     const delay = SPEED_DELAYS[speed] ?? 800;
     const timer = setTimeout(() => {
       step();
     }, delay);
     return () => clearTimeout(timer);
-  }, [isSimMode, isPlaying, speed, step, stepCount, state]);
+  }, [enabled, isSimMode, isPlaying, speed, step, stepCount, state]);
 
   const handleStep = useCallback(() => {
     setIsPlaying(false);

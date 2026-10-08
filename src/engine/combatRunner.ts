@@ -74,6 +74,14 @@ export function checkAndSetCombatEnd(state: GameState): GameState {
 export function completeHeroTurn(state: GameState, heroId: string): GameState {
   if (!state.combat || state.combat.combatResult) return state;
 
+  const hero = getHeroById(state, heroId);
+  if (hero?.alive && hero.perTurnFlags["extraAction"]) {
+    return { ...state, party: { ...state.party,
+      heroes: state.party.heroes.map(h => h.id === heroId
+        ? { ...h, perTurnFlags: { ...h.perTurnFlags, extraAction: false } } : h),
+    } };
+  }
+
   let newState = state;
   const combat = newState.combat!;
 

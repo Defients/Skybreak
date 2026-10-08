@@ -44,6 +44,7 @@ import {
   serializeCapsule,
   parseCapsule,
   isValidCapsule,
+  CAPSULE_VERSION,
 } from "../engine/runCapsule";
 import { getPrimaryVerdict } from "../engine/vyridianVerdict";
 import type { GameState } from "../types/gameState";
@@ -423,11 +424,11 @@ describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
   // ─── FM#8: Batch cancellation ──────────────────────────────────
 
   it("FM#8: runBatch stops early when cancelRequested is true", async () => {
-    // CORRECT behavior: a batch run should be cancellable. Currently
-    // runBatch never reads cancelRequested and runs all runs to completion.
-    // We test by setting a large number of runs and cancelling immediately.
+    // Use a fixed configuration; the first synchronous run can take several
+    // seconds under concurrent jsdom workers before cancellation is observed.
     const store = useBatchStore.getState();
     const config = makeBatchConfig({ runs: 100, baseSeed: "mp2-cancel" });
+    store.setConfig(config);
     // Start the batch, then cancel after the first run completes.
     const startPromise = store.startBatch();
     // Give it a moment to start, then cancel.
@@ -435,11 +436,12 @@ describe("Megaplan Phase 2 — Run lifecycle and evidence fixtures", () => {
     store.cancelBatch();
     await startPromise;
     const result = useBatchStore.getState().result;
-    // CORRECT: the batch should have been interrupted, so it should NOT have
-    // completed all 100 runs. Currently it runs all 100.
     expect(result).not.toBeNull();
+    expect(result!.config.runs).toBe(100);
     expect(result!.runs.length).toBeLessThan(100);
-  });
+    expect(useBatchStore.getState().cancelRequested).toBe(true);
+    expect(useBatchStore.getState().isRunning).toBe(false);
+  }, 30000);
 });
 
 // ============================================================
@@ -511,7 +513,7 @@ describe("Megaplan Phase 3 — Ascent Capsules", () => {
 
     const capsule = buildRunCapsule(state);
 
-    expect(capsule.v).toBe(1);
+    expect(capsule.v).toBe(CAPSULE_VERSION);
     expect(capsule.type).toBe("skybreak-capsule");
     expect(capsule.seed).toBe("capsule-test-seed");
     expect(capsule.difficulty).toBe("normal");
@@ -537,7 +539,7 @@ describe("Megaplan Phase 3 — Ascent Capsules", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.seed).toBe("capsule-rt-seed");
     expect(parsed!.party).toHaveLength(3);
-    expect(parsed!.v).toBe(1);
+    expect(parsed!.v).toBe(CAPSULE_VERSION);
   });
 
   it("FM#9: parseCapsule rejects invalid input", () => {
@@ -809,7 +811,8 @@ describe("Megaplan Phase 6c — Physical Table Bridge", () => {
     const rng = new RngEngine("physical-clear");
     rng.setPhysicalRolls([1, 2]);
     rng.setPhysicalCards([
-      { id: "c", suit: "spades" as const, rank: "A" as const, display: "A♠", deckType: "peon" as const },
+      { id: "c", suit: "spades" as const, rank: "8" as const, display: "8♠", deckType: "peon" as const },
+      { id: "d", suit: "hearts" as const, rank: "6" as const, display: "6♥", deckType: "peon" as const },
     ]);
     rng.clearPhysicalOverrides();
     expect(rng.hasPhysicalRolls).toBe(false);

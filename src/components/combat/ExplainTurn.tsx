@@ -11,6 +11,7 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { GameEvent } from "../../types/events";
 import type { DamageBreakdown } from "../../types/combat";
 
@@ -166,20 +167,24 @@ export function ExplainTurnIcon({ event }: ExplainTurnProps) {
           setShow((prev) => !prev);
         }}
         aria-label="Explain this event"
+        aria-expanded={show}
         title="Explain this event"
       >
         ℹ
       </button>
-      {show && (
-        <div className="absolute right-0 top-full mt-1 z-[200] glass-panel rounded-lg border border-spire-border/40 p-3 shadow-xl animate-fade-in">
+      {show && createPortal(
+        <div role="dialog" aria-modal="true" aria-label="Explain this event" className="fixed inset-0 z-[200] flex items-center justify-center p-3 bg-black/60" onClick={() => setShow(false)} onKeyDown={e => { if (e.key === "Escape") setShow(false); }}>
+        <div className="relative glass-panel rounded-lg border border-spire-border/40 p-4 pt-7 shadow-xl max-h-[85vh] overflow-y-auto animate-fade-in" onClick={e => e.stopPropagation()}>
           <DamageExplanation event={event} />
           <button
             className="absolute top-1 right-1.5 text-spire-muted/50 hover:text-spire-white text-[10px]"
+            aria-label="Close explanation"
             onClick={(e) => { e.stopPropagation(); setShow(false); }}
           >
             ✕
           </button>
         </div>
+        </div>, document.body
       )}
     </span>
   );

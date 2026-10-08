@@ -9,6 +9,7 @@ import type { HeroClassName, ClassData, Specialization } from "../../types/heroe
 import type { Suit } from "../../types/cards";
 import type { Difficulty, GameMode } from "../../types/simulation";
 import { generateSeed } from "../../utils/ids";
+import { RngEngine } from "../../utils/random";
 import type { PartySetupChoice } from "../../engine/gameState";
 import type { ScreenName } from "../../app/App";
 import { useAudio } from "../../audio/useAudio";
@@ -128,6 +129,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
   const [showStrategyHint, setShowStrategyHint] = useState(false);
   const [autoSelectStep, setAutoSelectStep] = useState(0);
   const [autosaveData, setAutosaveData] = useState<SaveData | null>(null);
+  const [continueError, setContinueError] = useState<string | null>(null);
   const autoSelectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doLoadState = useGameStore((s) => s.doLoadState);
@@ -158,7 +160,14 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
   const handleContinueRun = () => {
     if (!autosaveData) return;
     playSfx("ui", "button_click");
-    doLoadState(autosaveData.gameState);
+    // Route through the canonical hydration boundary (validate → migrate →
+    // RNG reconstruction). On failure the live session is untouched and the
+    // error is surfaced instead of silently navigating away.
+    const ok = doLoadState(autosaveData);
+    if (!ok) {
+      setContinueError(useGameStore.getState().loadError ?? "This save could not be loaded.");
+      return;
+    }
     onNavigate?.("dashboard");
   };
 
@@ -208,8 +217,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
     autoSelectTimerRef.current = setTimeout(() => {
       const allSuits: Suit[] = ["clubs", "diamonds", "hearts", "spades"];
       const available = ALL_CLASSES.filter(c => !selections.slice(0, step).includes(c));
-      const picked = available[Math.floor(Math.random() * available.length)];
-      const suit = allSuits[Math.floor(Math.random() * 4)];
+      const setupRng = new RngEngine(`${seed}:setup:${step}`);
+      const picked = setupRng.chooseRandom(available, "class");
+      const suit = setupRng.chooseRandom(allSuits, "suit");
       playSfx("ui", "menu_open");
       setSelections(prev => {
         const next = [...prev];
@@ -225,7 +235,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
     }, 2000);
 
     return () => clearAutoSelectTimer();
-  }, [showSetup, mode, autoSelectStep, selections, clearAutoSelectTimer]);
+  }, [showSetup, mode, seed, autoSelectStep, selections, clearAutoSelectTimer]);
 
   const handleStart = () => {
     const choices: PartySetupChoice[] = selections.map((className, i) => ({
@@ -293,7 +303,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
           </p>
           <div className="flex items-center justify-center gap-4 py-3">
             <div className="h-px w-16 sm:w-24 bg-gradient-to-r from-transparent to-amber-400/50" />
-            <p className="text-lg sm:text-3xl font-tactical tracking-[0.15em] sm:tracking-[0.25em] uppercase whitespace-nowrap text-amber-300"
+            <p className="text-sm sm:text-3xl font-tactical tracking-[0.1em] sm:tracking-[0.25em] uppercase text-amber-300"
               style={{ textShadow: "0 0 12px rgba(251,191,36,0.4), 0 2px 4px rgba(0,0,0,0.5)" }}
             >
               Every deck becomes a new ascent
@@ -345,6 +355,11 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
                 </button>
               )}
             </div>
+            {continueError && (
+              <div className="text-xs text-spire-danger bg-spire-danger/10 border border-spire-danger/20 rounded-lg px-3 py-2">
+                {continueError}
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5 text-[11px] sm:text-xs text-spire-muted/70 font-tactical tracking-wider">
               <span className="flex items-center gap-1.5"><span className="text-sm">🕒</span> 45–90 min</span>
               <span className="hidden sm:inline text-spire-border/50">·</span>
@@ -398,9 +413,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
           <div className="text-center space-y-3">
             <div className="text-lg font-tactical gold-text tracking-wide cosmo-text-glow-gold">🃏 Play With a Real Deck of Cards</div>
             <p className="text-spire-muted text-sm leading-relaxed">
-              No proprietary cards required. <span className="font-semibold">Skybreak</span> is designed around ordinary tabletop components: a standard 54-card deck, two six-sided dice, and the will to climb.<br />Fully playable offline — the digital version is a 1:1 mirror of the tabletop ruleset.
+              No proprietary cards required. <span className="font-semibold">Skybreak</span> uses a standard 54-card deck and two six-sided dice. During digital combat, physical mode accepts two Peon cards and the first action die; secondary checks, setup, and other phases still use seeded RNG.
             </p>
-            <div className="flex justify-center gap-3">
+            <div className="flex flex-wrap justify-center gap-3">
               <span className="text-[10px] uppercase tracking-wider text-spire-muted bg-spire-bg/40 border border-spire-border/30 rounded-full px-3 py-1">54-Card Deck</span>
               <span className="text-[10px] uppercase tracking-wider text-spire-muted bg-spire-bg/40 border border-spire-border/30 rounded-full px-3 py-1">2d6 Dice</span>
               <span className="text-[10px] uppercase tracking-wider text-spire-muted bg-spire-bg/40 border border-spire-border/30 rounded-full px-3 py-1">No App Required</span>
@@ -428,7 +443,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
       </p>
 
       {showBetaNotice && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Beta notice" className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => { prefSet(BETA_DISMISSED_KEY, "1"); setShowBetaNotice(false); }}
@@ -459,7 +474,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
       )}
 
       {showStrategyHint && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Strategy introduction" className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             onClick={() => { setShowStrategyHint(false); setShowSetup(true); }}
@@ -875,11 +890,12 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
           onClick={() => {
             playSfx("ui", "button_click");
             const allSuits: Suit[] = ["clubs", "diamonds", "hearts", "spades"];
+            const setupRng = new RngEngine(`${seed}:suggested-party`);
             setSelections(["Bladedancer", "Manipulator", "Tracker"]);
             setSuits([
-              allSuits[Math.floor(Math.random() * 4)],
-              allSuits[Math.floor(Math.random() * 4)],
-              allSuits[Math.floor(Math.random() * 4)],
+              setupRng.chooseRandom(allSuits),
+              setupRng.chooseRandom(allSuits),
+              setupRng.chooseRandom(allSuits),
             ]);
           }}
         >
@@ -890,12 +906,13 @@ export function HomeScreen({ onNavigate }: HomeScreenProps = {}) {
           onClick={() => {
             playSfx("ui", "button_click");
             const allSuits: Suit[] = ["clubs", "diamonds", "hearts", "spades"];
-            const shuffled = [...ALL_CLASSES].sort(() => Math.random() - 0.5);
+            const setupRng = new RngEngine(`${seed}:random-party`);
+            const shuffled = setupRng.shuffleDeck([...ALL_CLASSES]);
             setSelections([shuffled[0], shuffled[1], shuffled[2]]);
             setSuits([
-              allSuits[Math.floor(Math.random() * 4)],
-              allSuits[Math.floor(Math.random() * 4)],
-              allSuits[Math.floor(Math.random() * 4)],
+              setupRng.chooseRandom(allSuits),
+              setupRng.chooseRandom(allSuits),
+              setupRng.chooseRandom(allSuits),
             ]);
           }}
         >
@@ -1096,6 +1113,7 @@ function AbilityOverlay({
 
   return (
     <div
+      role="dialog" aria-modal="true" aria-label={`${className} abilities`} onKeyDown={e => { if (e.key === "Escape") onClose(); }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
       onClick={onClose}
     >

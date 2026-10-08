@@ -9,13 +9,12 @@
 
 import { useState } from "react";
 import type { Card } from "../../types/cards";
-import type { GameEvent } from "../../types/events";
 
 const SUITS = ["clubs", "diamonds", "hearts", "spades"] as const;
 const SUIT_SYMBOLS: Record<string, string> = {
   clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠",
 };
-const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10"];
 
 interface PhysicalInputPanelProps {
   /** Who is acting — hero name or "Monster" */
@@ -32,18 +31,19 @@ export function PhysicalInputPanel({ actorName, onSubmit, onSkip }: PhysicalInpu
   const [card2Suit, setCard2Suit] = useState<string>("clubs");
   const [card2Rank, setCard2Rank] = useState<string>("3");
   const [actionRoll, setActionRoll] = useState<number>(4);
+  const duplicate = card1Suit === card2Suit && card1Rank === card2Rank;
 
   const handleSubmit = () => {
     const cards: Card[] = [
       {
-        id: `physical-card-1-${Date.now()}`,
+        id: `physical-${card1Rank}-${card1Suit}`,
         suit: card1Suit as Card["suit"],
         rank: card1Rank as Card["rank"],
         display: `${card1Rank}${SUIT_SYMBOLS[card1Suit]}`,
         deckType: "peon",
       },
       {
-        id: `physical-card-2-${Date.now()}`,
+        id: `physical-${card2Rank}-${card2Suit}`,
         suit: card2Suit as Card["suit"],
         rank: card2Rank as Card["rank"],
         display: `${card2Rank}${SUIT_SYMBOLS[card2Suit]}`,
@@ -55,15 +55,17 @@ export function PhysicalInputPanel({ actorName, onSubmit, onSkip }: PhysicalInpu
 
   return (
     <div className="glass-panel rounded-xl border border-spire-accent/40 p-4 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap gap-1 items-center justify-between">
         <h3 className="text-sm font-bold text-spire-gold">Physical Table Input</h3>
         <span className="text-[10px] text-spire-muted uppercase tracking-wider">{actorName}'s turn</span>
       </div>
+      <p className="text-xs text-spire-muted">Enter two Peon cards (2–10) and the first action die. Freeze, escape, rerolls, pets, and additional monster actions use seeded RNG.</p>
+      {duplicate && <p role="alert" className="text-xs text-spire-danger">The two cards must be different.</p>}
 
       {/* Card flips */}
       <div className="space-y-2">
         <div className="text-[10px] text-spire-muted/70 uppercase tracking-wider">Flip 2 Peon Cards</div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-3">
           <CardInput label="Card 1" suit={card1Suit} rank={card1Rank} onSuitChange={setCard1Suit} onRankChange={setCard1Rank} />
           <CardInput label="Card 2" suit={card2Suit} rank={card2Rank} onSuitChange={setCard2Suit} onRankChange={setCard2Rank} />
         </div>
@@ -72,11 +74,13 @@ export function PhysicalInputPanel({ actorName, onSubmit, onSkip }: PhysicalInpu
       {/* Action die roll */}
       <div className="space-y-2">
         <div className="text-[10px] text-spire-muted/70 uppercase tracking-wider">Action Die (d6)</div>
-        <div className="flex gap-1.5">
+        <div className="grid grid-cols-3 gap-1.5">
           {[1, 2, 3, 4, 5, 6].map((n) => (
             <button
               key={n}
-              className={`w-9 h-9 rounded-lg font-mono font-bold text-sm transition-all ${
+              aria-label={`Action die ${n}`}
+              aria-pressed={actionRoll === n}
+              className={`w-full min-h-[44px] rounded-lg font-mono font-bold text-sm transition-all ${
                 actionRoll === n
                   ? "bg-spire-accent text-white scale-110 shadow-lg"
                   : "bg-spire-bg-deep text-spire-muted hover:text-spire-white border border-spire-border/40"
@@ -90,10 +94,11 @@ export function PhysicalInputPanel({ actorName, onSubmit, onSkip }: PhysicalInpu
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
           className="flex-1 input bg-spire-accent/20 hover:bg-spire-accent/30 text-spire-white font-medium text-xs"
           onClick={handleSubmit}
+          disabled={duplicate}
         >
           ✓ Confirm Physical Inputs
         </button>
@@ -130,7 +135,9 @@ function CardInput({
         {SUITS.map((s) => (
           <button
             key={s}
-            className={`w-7 h-7 rounded text-sm transition-all ${
+            aria-label={`${label} suit ${s}`}
+            aria-pressed={suit === s}
+            className={`flex-1 min-w-0 min-h-[44px] rounded text-sm transition-all ${
               suit === s
                 ? "bg-spire-accent/30 border border-spire-accent scale-110"
                 : "bg-spire-bg-deep border border-spire-border/30 hover:border-spire-border/60"
@@ -143,6 +150,7 @@ function CardInput({
         ))}
       </div>
       <select
+        aria-label={`${label} rank`}
         className="input text-xs w-full"
         value={rank}
         onChange={(e) => onRankChange(e.target.value)}

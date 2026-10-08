@@ -1,4 +1,4 @@
-import type { GameState, PartyState } from "../types/gameState";
+import type { GameState, PartyState, StartingHeroConfig } from "../types/gameState";
 import type { RunStats } from "../types/ui";
 import type { SimulationConfig, Difficulty } from "../types/simulation";
 import type { HeroState, HeroClassName, Specialization, HeroPosition, HeroId } from "../types/heroes";
@@ -126,7 +126,7 @@ export function createHero(
     alive: true,
     currentHp: maxHp,
     maxHp,
-    baseMaxHp: classData.baseHp,
+    baseMaxHp: maxHp,
     apcs: [],
     temporaryApcs: [],
     permanentApcs: [],
@@ -172,6 +172,17 @@ export function initializeGame(
     return createHero(heroId, choice.className, choice.suit, choice.position, config.difficulty, rng);
   });
 
+  // Immutable record of the original party configuration. Unlike APC state
+  // (which is consumed/transformed during play), this survives the whole run
+  // so Ascent Capsules can report the true starting conditions.
+  const startingParty: StartingHeroConfig[] = partyChoices.map((choice, index) => ({
+    heroId: (index + 1) as HeroId,
+    className: choice.className,
+    suit: choice.suit,
+    position: choice.position,
+    specialization: heroes[index].specialization,
+  }));
+
   const startingGold = getStartingGold(config.difficulty);
 
   const party: PartyState = {
@@ -198,11 +209,7 @@ export function initializeGame(
       difficulty: config.difficulty,
     },
     phase: "setup",
-    rng: {
-      seed: config.seed,
-      step: 0,
-      history: [],
-    },
+    rng: rng.serialize(),
     spire: {
       tier: 1,
       roomIndex: 0,
@@ -212,6 +219,7 @@ export function initializeGame(
       merchantPriceMultiplier: 1,
     },
     party,
+    startingParty,
     stats: createDefaultStats(),
     log: [],
     settings: config,

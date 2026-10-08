@@ -5,6 +5,7 @@ import { ErrorBoundary } from "../components/layout/ErrorBoundary";
 import { HomeScreen } from "../components/screens/HomeScreen";
 import { SimulationControls } from "../components/ui/SimulationControls";
 import { useAutoPlay } from "../hooks/useAutoPlay";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 import { CombatTransition, type CombatTransitionType } from "../components/ui/CombatTransition";
 import { getLivingHeroes } from "../engine/rulesEngine";
 import { useAudio } from "../audio/useAudio";
@@ -24,7 +25,7 @@ const WikiScreen = lazy(() => import("../components/screens/WikiScreen").then(m 
 
 function ScreenLoader() {
   return (
-    <div className="flex items-center justify-center min-h-[60vh]">
+    <div role="status" aria-label="Loading screen" className="flex items-center justify-center min-h-[60vh]">
       <div className="w-8 h-8 rounded-full border-2 border-spire-accent/30 border-t-spire-accent animate-spin" />
     </div>
   );
@@ -68,6 +69,7 @@ const SCREEN_TRANSITIONS: Record<ScreenName, string> = {
 };
 
 export function App() {
+  useDialogFocus();
   const state = useGameStore((s) => s.state);
   const doResetGame = useGameStore((s) => s.doResetGame);
   const doAdvanceRoom = useGameStore((s) => s.doAdvanceRoom);
@@ -82,7 +84,7 @@ export function App() {
   const pendingScreenRef = useRef<ScreenName | null>(null);
   const prevEffectiveScreenRef = useRef<ScreenName>("home");
 
-  const { isPlaying, setIsPlaying, speed, setSpeed, stepCount, handleStep, isSimMode } = useAutoPlay();
+  const { isPlaying, setIsPlaying, speed, setSpeed, stepCount, handleStep, isSimMode } = useAutoPlay(!["home", "rules", "wiki", "wiki-rules", "wiki-strategy", "debug", "batch", "strategy_lab"].includes(screen));
   const { stopAllSfx } = useAudio();
 
   const handleNavigate = useCallback((next: ScreenName) => {
@@ -121,13 +123,14 @@ export function App() {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
 
+      if (e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       if (e.key === "ArrowRight") {
+        if (screen !== "dashboard" && screen !== "combat") return;
         e.preventDefault();
         const now = Date.now();
         if (now - lastActionRef.current < 400) return;
         lastActionRef.current = now;
         if (state?.phase === "combat" && state.combat) {
-          if (state.combat.activeSide !== "heroes") return;
           if (state.combat.combatResult) {
             stopAllSfx();
             doResolveRoom();
@@ -150,7 +153,7 @@ export function App() {
         }
       } else if (e.key === "Escape") {
         if (state?.phase === "combat" && state.combat?.activeSide !== "heroes") return;
-        if (screen === "wiki") {
+        if (screen === "wiki" || screen === "wiki-rules" || screen === "wiki-strategy") {
           setScreen(prevScreenRef.current);
         } else if (screen === "combat" || screen === "merchant" || screen === "rest") {
           stopAllSfx();
@@ -185,15 +188,15 @@ export function App() {
       return <WelcomeBonusView onComplete={() => setScreen("dashboard")} />;
     }
 
-    if (state.phase === "merchant" || screen === "merchant") {
+    if (state.phase === "merchant") {
       return <MerchantView onBack={() => setScreen("dashboard")} />;
     }
 
-    if (state.phase === "combat" || screen === "combat") {
+    if (state.phase === "combat") {
       return <CombatView onBack={() => handleNavigate("dashboard")} />;
     }
 
-    if (state.phase === "rest" || screen === "rest") {
+    if (state.phase === "rest") {
       return <RestView onBack={() => setScreen("dashboard")} />;
     }
 
@@ -209,16 +212,16 @@ export function App() {
   const effectiveScreen: ScreenName = (() => {
     if (screen === "batch") return "batch";
     if (screen === "strategy_lab") return "strategy_lab";
-    if (!state) return "home";
+    if (screen === "home" || !state) return "home";
+    if (screen === "rules") return "rules";
+    if (screen === "wiki" || screen === "wiki-rules" || screen === "wiki-strategy") return "wiki";
+    if (screen === "debug") return "debug";
     if (state.phase === "victory" || state.phase === "defeat") return "report";
     if (state.welcomeBonusPending) return "welcome_bonus";
-    if (state.phase === "merchant" || screen === "merchant") return "merchant";
-    if (state.phase === "combat" || screen === "combat") return "combat";
-    if (state.phase === "rest" || screen === "rest") return "rest";
+    if (state.phase === "merchant") return "merchant";
+    if (state.phase === "combat") return "combat";
+    if (state.phase === "rest") return "rest";
     if (state.phase === "tier_transition") return "tier_transition";
-    if (screen === "rules") return "rules";
-    if (screen === "wiki" || screen === "wiki-rules") return "wiki";
-    if (screen === "debug") return "debug";
     return "dashboard";
   })();
 

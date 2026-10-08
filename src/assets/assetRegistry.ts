@@ -3,6 +3,9 @@
  * all asset URLs at build time. Provides typed helper functions for
  * resolving game entity names to image/audio paths.
  */
+import { ITEMS_BY_ID } from "../data/items";
+import { WEAPONS } from "../data/weapons";
+import { getMonsterById } from "../data/monsters";
 
 // Eagerly import all asset files as URLs
 // Using query:"?url", import:"default" (Vite 5+ replacement for deprecated as:"url")
@@ -132,7 +135,8 @@ const HERO_PORTRAIT_MAP: Record<string, string> = {
 
 export function getHeroPortrait(name: string): string | null {
   const key = HERO_PORTRAIT_MAP[name] ?? normalizeName(name);
-  return lookup(key);
+  // Guardian also names an enchantment image; portraits must win that collision.
+  return lookupPath(`assets/hero_portraits/class_portrait/${key}.webp`) ?? lookup(key);
 }
 
 export function getClassIcon(name: string): string | null {
@@ -300,28 +304,22 @@ export function getItemImage(name: string): string | null {
   return lookup(key);
 }
 
-/** Look up item image by stable content ID (itemId). Falls back to name-based lookup. */
+/** Resolve registered IDs through authored names and explicit filename mappings. */
 export function getItemImageById(itemId: string): string | null {
-  // The ITEM_MAP values often match itemId values (e.g., "minor_potion").
-  // Try direct lookup first, then normalize.
-  const key = ITEM_MAP[itemId] ?? itemId;
-  return lookup(key);
+  const item = ITEMS_BY_ID[itemId];
+  return item ? getItemImage(item.name) : null;
 }
 
 /** Look up weapon image by stable content ID (weaponId). Falls back to name-based lookup. */
 export function getWeaponImageById(weaponId: string): string | null {
-  // Weapon IDs like "bd_common_1" don't directly map to asset filenames,
-  // so we normalize. The WEAPON_MAP is still name-based for now.
-  const key = normalizeName(weaponId);
-  return lookup(key) ?? lookup(weaponId);
+  const weapon = WEAPONS.find(w => w.id === weaponId);
+  return weapon ? getWeaponImage(weapon.name) : null;
 }
 
 /** Look up monster image by stable numeric ID. */
 export function getMonsterImageById(monsterId: number, name?: string): string | null {
-  // Monsters are keyed by name in MONSTER_MAP; the numeric ID is stable
-  // but not directly mapped to filenames. Fall back to name-based lookup.
-  if (name) return getMonsterImage(name);
-  return null;
+  const monster = getMonsterById(monsterId);
+  return monster ? getMonsterImage(monster.name) : null;
 }
 
 // ============================================================
@@ -436,7 +434,7 @@ export function getShopCounterImage(): string | null {
 }
 
 export function getDiceUpgradeImage(): string | null {
-  return lookupPath("assets/items/dice.PNG");
+  return lookupPath("assets/items/dice.webp");
 }
 
 // ============================================================

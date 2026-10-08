@@ -1,0 +1,49 @@
+{
+  "stage": 2,
+  "reportDate": "2026-10-07",
+  "timezone": "America/New_York",
+  "baseHead": "a2044d48358913c5eb49fa4719815ac4c12e4537",
+  "delivery": "dirty working tree; existing Stage 1 changes preserved; no commit, push or deployment",
+  "environment": {
+    "os": "Windows",
+    "shell": "PowerShell",
+    "node": "22.14.0",
+    "npm": "10.9.2",
+    "vite": "5.4.21",
+    "vitest": "2.1.9",
+    "playwright": "1.64.0",
+    "browser": "Chromium",
+    "browserBaseURL": "http://127.0.0.1:4173"
+  },
+  "baseline": { "unitTests": 811, "unitFiles": 25 },
+  "checks": [
+    { "command": "npm ci", "status": "PASS", "exitCode": 0, "installedPackages": 288 },
+    { "command": "npm test", "status": "PASS", "exitCode": 0, "passed": 1169, "failed": 0, "files": 29, "durationSeconds": 34.24 },
+    { "command": "npx tsc -b --noEmit", "status": "PASS", "exitCode": 0 },
+    { "command": "npm run build", "status": "PASS", "exitCode": 0, "viteCompilationSeconds": 11.22 },
+    { "command": "npm run test:e2e", "status": "PASS", "exitCode": 0, "passed": 29, "failed": 0, "reportedDuration": "2.5m" },
+    { "command": "npx playwright test --grep=merchant", "status": "PASS", "exitCode": 0, "passed": 6, "note": "focused merchant follow-up, followed by final complete 29-scenario run" },
+    { "command": "git diff --check", "status": "PASS", "exitCode": 0 }
+  ],
+  "newUnitTests": {
+    "total": 358,
+    "stage2Playability": 27,
+    "stage2Content": 304,
+    "stage2Damage": 7,
+    "stage2Integration": 20
+  },
+  "inventory": { "classes": 4, "specializations": 8, "monsters": 21, "weapons": 32, "items": 12, "rooms": 32, "screenshots": 51 },
+  "controlledCampaigns": { "difficulties": ["easy", "normal", "hard", "nightmare"], "roomsPerCampaign": 32, "tierTransitionsPerCampaign": 2, "note": "1000-damage controlled hits isolate progression; this is not natural play" },
+  "naturalSmoke": [
+    { "difficulty": "easy", "seed": "stage2-natural-easy", "outcome": "victory", "roomsCleared": 32, "totalTurns": 27 },
+    { "difficulty": "normal", "seed": "stage2-natural-normal", "outcome": "defeat", "roomsCleared": 31, "totalTurns": 62 },
+    { "difficulty": "hard", "seed": "stage2-natural-hard", "outcome": "defeat", "roomsCleared": 13, "totalTurns": 24 },
+    { "difficulty": "nightmare", "seed": "stage2-natural-nightmare", "outcome": "defeat", "roomsCleared": 5, "totalTurns": 16 }
+  ],
+  "notRun": ["remote CI", "deployment", "Firefox", "WebKit", "assistive-technology session", "complete natural human-played campaign"],
+  "existingDependencyAudit": { "total": 18, "moderate": 6, "high": 10, "critical": 2, "remediation": "not included in Stage 2; no breaking upgrades applied" },
+  "readiness": "conditional for Stage 3 infrastructure; full Stage 2 rules parity incomplete",
+  "openMechanics": ["selected-die rerolls: Lucky Charm, Swift, Swift Blade, Reality Anchor", "25 percent resale valuation and sale operation", "Rapid Fire independent second-hit targeting"],
+  "openAuthorityDecisions": ["compound merchant scaling", "Nightmare campaign versus encounter turn budget", "summit stalemate retry versus terminal loss"],
+  "physicalSupport": "two distinct Peon cards and first action die only; secondary checks/decks/APC/environment remain seeded"
+}

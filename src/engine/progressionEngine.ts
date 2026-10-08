@@ -2,7 +2,7 @@ import type { GameState } from "../types/gameState";
 import type { ScoreResult } from "../types/ui";
 import { getLivingHeroes } from "./rulesEngine";
 import { emitEvent } from "./eventLog";
-import { grantRewards, cleanupCombat } from "./combatEngine";
+import { grantRewards, cleanupCombat, checkCombatEnd } from "./combatEngine";
 import { markRoomResolved, advanceRoom } from "./rulesEngine";
 
 export function resolveRestChoice(
@@ -181,10 +181,11 @@ export function checkDefeat(state: GameState): boolean {
 
 export function finalizeRunStats(state: GameState): GameState {
   const heroIds = new Set(state.party.heroes.map(h => h.id));
-  const damageByHero: Record<string, number> = {};
-  const damageByMonster: Record<string, number> = {};
+  const damageByHero: Record<string, number> = { ...state.stats.damageByHero };
+  const damageByMonster: Record<string, number> = { ...state.stats.damageByMonster };
 
   for (const event of state.log) {
+    if (state.stats.damageByHero && state.stats.damageByMonster) break;
     if (event.type !== "DAMAGE_APPLIED") continue;
     const damage = (event.details as Record<string, unknown>)?.damage as number | undefined;
     if (!damage || damage <= 0) continue;
@@ -257,6 +258,7 @@ export interface ResolveCombatRoomResult {
  * semantics.
  */
 export function resolveCombatRoom(state: GameState): ResolveCombatRoomResult {
+  if (state.phase === "victory" || state.phase === "defeat") return { state, terminal: state.phase };
   const combatResult = state.combat?.combatResult;
   if (!combatResult) {
     return { state, terminal: "continue" };
@@ -269,6 +271,7 @@ export function resolveCombatRoom(state: GameState): ResolveCombatRoomResult {
     const defeatedBy = state.combat?.monster.name;
     newState = cleanupCombat(newState);
     if (finalBossVictory) {
+      newState = markRoomResolved(newState);
       newState = finalizeRunStats(newState);
       const score = calculateScore(newState);
       newState = { ...newState, phase: "victory", score };
@@ -285,23 +288,24 @@ export function resolveCombatRoom(state: GameState): ResolveCombatRoomResult {
 
   if (combatResult === "defeat") {
     const defeatedBy = state.combat?.monster.name;
-    if (checkDefeat(state)) {
+    // Nightmare's deadline is a defeat even if heroes survive. Retreat has
+    // its own result and cannot be treated as defeat-with-survivors here.
+    {
+      const reason = checkDefeat(state) ? "party_wipe" : "combat_defeat";
+      const explanation = checkCombatEnd(state).reason;
       let newState = finalizeRunStats(state);
       newState = { ...newState, phase: "defeat" };
       newState = emitEvent(newState, "DEFEAT",
-        "The party has been wiped out. The Astrilith claims another group of adventurers.",
-        { details: { reason: "party_wipe" } });
+        reason === "party_wipe" ? "The party has been wiped out. The Astrilith claims another group of adventurers." : explanation,
+        { details: { reason } });
       return { state: newState, terminal: "defeat", defeatedByMonster: defeatedBy };
     }
-    // Party not fully wiped (e.g. retreat with survivors): advance.
-    let newState = cleanupCombat(state);
-    newState = markRoomResolved(newState);
-    newState = advanceRoom(newState);
-    return { state: newState, terminal: "continue" };
   }
 
   // retreat or other: cleanup and advance
   let newState = cleanupCombat(state);
+  // The summit has no next room. Leave an unwon encounter available to retry.
+  if (state.combat?.isFinalBoss) return { state: newState, terminal: "continue" };
   newState = markRoomResolved(newState);
   newState = advanceRoom(newState);
   return { state: newState, terminal: "continue" };

@@ -7,6 +7,7 @@ export type GameEventType =
   | "MERCHANT_ENTERED"
   | "ITEM_BOUGHT"
   | "ITEM_SOLD"
+  | "INVENTORY_CHANGED"
   | "REST_CHOICE"
   | "COMBAT_STARTED"
   | "MONSTER_REVEALED"

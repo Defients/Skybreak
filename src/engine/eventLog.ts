@@ -35,12 +35,34 @@ export function createEvent(
 const MAX_LOG_ENTRIES = 500;
 
 export function addEvent(state: GameState, event: GameEvent): GameState {
-  const log = [...state.log, event];
+  let stats = state.stats;
+  if (event.type === "DAMAGE_APPLIED" && typeof event.details?.damage === "number" && event.details.damage > 0 && event.actorId) {
+    const damageByHero = { ...stats.damageByHero };
+    const damageByMonster = { ...stats.damageByMonster };
+    // Bootstrap old saves from the events they still carry. Earlier pruned
+    // history cannot be reconstructed; new runs retain totals from event one.
+    const events = stats.damageByHero && stats.damageByMonster ? [event] : [...state.log, event];
+    for (const entry of events) {
+      const damage = entry.details?.damage;
+      if (entry.type !== "DAMAGE_APPLIED" || typeof damage !== "number" || damage <= 0 || !entry.actorId) continue;
+      const hero = state.party.heroes.find(h => h.id === entry.actorId || h.pet?.id === entry.actorId || h.secondPet?.id === entry.actorId);
+      if (hero) damageByHero[hero.id] = (damageByHero[hero.id] ?? 0) + damage;
+      else {
+        const name = typeof entry.details?.attackerName === "string" ? entry.details.attackerName : entry.summary.split(" dealt ")[0];
+        damageByMonster[name] = (damageByMonster[name] ?? 0) + damage;
+      }
+    }
+    stats = { ...stats, damageByHero, damageByMonster };
+  }
+  let log = [...state.log, event];
   if (log.length > MAX_LOG_ENTRIES) {
-    log.splice(0, log.length - MAX_LOG_ENTRIES);
+    const setup = log.filter(e => e.type === "GAME_STARTED" || e.type === "PARTY_CREATED" || (e.type === "DICE_ROLLED" && e.summary.includes("Welcome Bonus"))).slice(0, 5);
+    const setupIds = new Set(setup.map(e => e.id));
+    log = [...setup, ...log.filter(e => !setupIds.has(e.id)).slice(-(MAX_LOG_ENTRIES - setup.length))];
   }
   return {
     ...state,
+    stats,
     log,
   };
 }
@@ -56,6 +78,8 @@ export function emitEvent(
     visibleToPlayer?: boolean;
   } = {}
 ): GameState {
+  // A resumed run can have a higher sequence than this module's counter.
+  eventSequence = Math.max(eventSequence, state.log[state.log.length - 1]?.sequence ?? 0);
   const event = createEvent(type, summary, options);
   return addEvent(state, event);
 }

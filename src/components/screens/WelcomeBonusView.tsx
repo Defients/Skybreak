@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useGameStore } from "../../app/gameStore";
 import { useAudio } from "../../audio/useAudio";
-import { InteractiveDiceRoller, skipRoll } from "../ui/InteractiveDiceRoller";
+import { InteractiveDiceRoller } from "../ui/InteractiveDiceRoller";
 import { HeroIcon } from "../ui/HeroIcon";
 import {
   getStarsImage,
@@ -342,16 +342,18 @@ export function WelcomeBonusView({ onComplete }: Props) {
 
   const handleSkip = useCallback(() => {
     setSkipped(true);
+    // Commit all dice first, then choose rewards in party order, as batch does.
+    heroes.forEach(hero => useGameStore.getState().doRollWelcomeBonus(hero.heroId));
     const skipResults: HeroRollResult[] = heroes.map((hero) => {
       const existing = results.find((r) => r.heroId === hero.heroId);
       if (existing) return existing;
 
-      const [d1, d2] = skipRoll();
+      const [d1, d2] = useGameStore.getState().doRollWelcomeBonus(hero.heroId);
       const total = d1 + d2;
       const rewardInfo = getRewardInfo(total, hero);
       const rewardWeapons = getRewardWeapons(total, hero.className);
       const autoChosen = rewardWeapons.length > 0
-        ? rewardWeapons[Math.floor(Math.random() * rewardWeapons.length)]
+        ? rewardWeapons.find(w => w.id === useGameStore.getState().doChooseWelcomeWeapon(hero.heroId)) ?? null
         : null;
 
       return {
@@ -426,8 +428,8 @@ export function WelcomeBonusView({ onComplete }: Props) {
       if (weapons.length > 0) {
         const delay = isSimulation ? 600 + Math.random() * 800 : 800;
         const timer = setTimeout(() => {
-          const pick = weapons[Math.floor(Math.random() * weapons.length)];
-          handleWeaponSelect(pick.id);
+          const pickId = useGameStore.getState().doChooseWelcomeWeapon(lastResult.heroId);
+          if (pickId) handleWeaponSelect(pickId);
         }, delay);
         return () => clearTimeout(timer);
       }
@@ -493,7 +495,7 @@ export function WelcomeBonusView({ onComplete }: Props) {
             <div className="text-3xl mb-2 animate-reward-bounce">🎁</div>
             <h2 className="text-2xl font-display gold-text mb-2">Welcome Bonus Summary</h2>
             <p className="text-spire-muted text-sm">
-              {skipped ? <><span>Results auto-distributed</span><br className="sm:hidden" /><span className="sm:ml-1">(reduced odds)</span></> : "All heroes have rolled their bonus rewards"}
+              {skipped ? "Seeded rewards auto-distributed — no skip penalty" : "All heroes have rolled their bonus rewards"}
             </p>
           </div>
 
@@ -784,6 +786,7 @@ export function WelcomeBonusView({ onComplete }: Props) {
             <InteractiveDiceRoller
               key={rollerKey}
               diceCount={2}
+              resolveValues={() => useGameStore.getState().doRollWelcomeBonus(currentHero.heroId)}
               onResult={handleRollResult}
               autoPlay={autoPlay}
             />

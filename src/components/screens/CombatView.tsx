@@ -32,6 +32,7 @@ import { suitSymbol, isRedSuit, getApcColors, APC_COLORS } from "../../types/car
 import { CLASS_TEXT_COLORS } from "../../utils/nameResolver";
 import { getMonsterById, MONSTERS, SUMMON_DATA } from "../../data/monsters";
 import { aiPlayHeroTurn } from "../../engine/aiController";
+import { getItemUseRejection } from "../../engine/heroAbilityEngine";
 
 const ENVIRONMENT_EMOJIS: Record<string, string> = {
   "Training Ground": "⚔️",
@@ -50,6 +51,8 @@ export function CombatView({ onBack }: Props) {
   const doHeroActionPhysical = useGameStore((s) => s.doHeroActionPhysical);
   const doMonsterTurnPhysical = useGameStore((s) => s.doMonsterTurnPhysical);
   const doMonsterTurn = useGameStore((s) => s.doMonsterTurn);
+  const doSetRngMode = useGameStore((s) => s.doSetRngMode);
+  const actionError = useGameStore((s) => s.actionError);
   const doEndTurn = useGameStore((s) => s.doEndTurn);
   const doUseItem = useGameStore((s) => s.doUseItem);
   const doResolveRoom = useGameStore((s) => s.doResolveRoom);
@@ -62,6 +65,7 @@ export function CombatView({ onBack }: Props) {
   const combatStartedRef = useRef(false);
   const [defeatCountdown, setDefeatCountdown] = useState<number | null>(null);
   const [openDropdownHeroId, setOpenDropdownHeroId] = useState<string | null>(null);
+  const [selectedEnemyId, setSelectedEnemyId] = useState<string | null>(null);
   const [flashingApcIds, setFlashingApcIds] = useState<Set<string>>(new Set());
   const [combatLogExpanded, setCombatLogExpanded] = useState(false);
   const [showAbilitiesOverlay, setShowAbilitiesOverlay] = useState(false);
@@ -124,7 +128,7 @@ export function CombatView({ onBack }: Props) {
   }, [doHeroAction, doUseItem, doEndTurn]);
 
   useEffect(() => {
-    if (!isHybridMode || !combatStarted || !state?.combat) return;
+    if (!isHybridMode || isPhysicalMode || !combatStarted || !state?.combat) return;
     if (state.combat.activeSide !== "heroes" || state.combat.combatResult) return;
     const nextHeroId = state.combat.heroTurnOrder.find(id =>
       !state.combat!.completedHeroTurns.includes(id) &&
@@ -136,7 +140,7 @@ export function CombatView({ onBack }: Props) {
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [isHybridMode, combatStarted, state, aiControlledHeroes, executeAIHeroTurn]);
+  }, [isHybridMode, isPhysicalMode, combatStarted, state, aiControlledHeroes, executeAIHeroTurn]);
 
   useEffect(() => {
     if (state?.combat) {
@@ -425,6 +429,8 @@ export function CombatView({ onBack }: Props) {
 
   const combat = state.combat;
   const monster = combat.monster;
+  const livingSummons = combat.summons.filter(s => s.alive);
+  const attackTargetId = selectedEnemyId && livingSummons.some(s => s.id === selectedEnemyId) ? selectedEnemyId : monster.id;
 
   // Companion mode: compute suggestion for the current hero
   const companionSuggestion = isCompanionMode && currentHeroId
@@ -445,6 +451,12 @@ export function CombatView({ onBack }: Props) {
 
   return (
     <div className="relative">
+      {!isSimulationMode && !combat.combatResult && <label className="relative z-10 flex items-center gap-2 text-sm mb-3">
+        <input type="checkbox" checked={isPhysicalMode} onChange={e => doSetRngMode(e.target.checked ? "physical" : "seeded")} />
+        Physical table inputs
+      </label>}
+      {isPhysicalMode && isHybridMode && <p className="relative z-10 text-xs text-spire-muted mb-3">Physical input pauses automatic hero control. Switch back to seeded input to resume AI turns.</p>}
+      {actionError && <p role="alert" className="relative z-10 text-sm text-spire-danger mb-3">{actionError}</p>}
       <EffectOverlay
         newEvents={newEffectEvents.map(e => ({ type: e.type, summary: e.summary, sequence: e.sequence, targetIds: e.targetIds, actorId: e.actorId }))}
       />
@@ -463,7 +475,7 @@ export function CombatView({ onBack }: Props) {
 
       {/* Start Combat overlay */}
       {!combatStarted && !isCombatOver && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Encounter introduction" className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 animate-fade-in">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-lg" />
           {combatBg && (
             <div
@@ -674,7 +686,7 @@ export function CombatView({ onBack }: Props) {
           const isCurrentHero = hero.id === currentHeroId;
           const canAct = isCurrentHero && !hasTurned && hero.alive;
           return (
-            <div key={hero.id} ref={(el) => { if (el) heroCardRefs.current.set(hero.id, el); else heroCardRefs.current.delete(hero.id); }} data-combat-target={hero.id} className={`glass-card p-4 relative flex-shrink-0 w-[200px] sm:w-[240px] lg:w-auto ${openDropdownHeroId === hero.id ? "z-30" : ""} ${!hero.alive ? "opacity-40 grayscale" : hasTurned ? "opacity-50" : ""} ${isCurrentHero ? "ring-2 ring-spire-accent/40" : ""}`}>
+            <div key={hero.id} ref={(el) => { if (el) heroCardRefs.current.set(hero.id, el); else heroCardRefs.current.delete(hero.id); }} data-combat-target={hero.id} className={`glass-card p-4 relative flex-shrink-0 ${state.settings.rngMode === "physical" && canAct ? "w-[calc(100vw-2rem)] sm:w-[320px]" : "w-[200px] sm:w-[240px]"} lg:w-auto ${openDropdownHeroId === hero.id ? "z-30" : ""} ${!hero.alive ? "opacity-40 grayscale" : hasTurned ? "opacity-50" : ""} ${isCurrentHero ? "ring-2 ring-spire-accent/40" : ""}`}>
               <div className="flex items-center gap-2.5 mb-2">
                 <HeroIcon hero={hero} size={36} isCurrentHero={isCurrentHero} />
                 <div className="flex-1 min-w-0">
@@ -755,8 +767,10 @@ export function CombatView({ onBack }: Props) {
                       : "bg-spire-bg/40 text-spire-muted border border-spire-border/30"
                   }`}
                   onClick={() => toggleHeroAI(hero.id)}
+                  disabled={isPhysicalMode}
+                  title={isPhysicalMode ? "Physical input requires manual entry." : "Toggle this hero's automatic control"}
                 >
-                  {aiControlledHeroes[hero.id] ? (
+                  {aiControlledHeroes[hero.id] && !isPhysicalMode ? (
                     <span className="flex items-center gap-1"><Bot className="w-3 h-3" /> AI Auto</span>
                   ) : (
                     <span className="flex items-center gap-1"><User className="w-3 h-3" /> Manual</span>
@@ -769,21 +783,31 @@ export function CombatView({ onBack }: Props) {
                   <span className="font-medium">💡 AI Suggests:</span> {companionSuggestion.reason}
                 </div>
               )}
+              {canAct && livingSummons.length > 0 && (
+                <label className="block text-xs text-spire-muted mb-2">
+                  Attack target
+                  <select aria-label="Attack target" className="input w-full text-xs mt-1" value={attackTargetId} onChange={e => setSelectedEnemyId(e.target.value)}>
+                    <option value={monster.id}>{monster.name}</option>
+                    {livingSummons.map(s => <option key={s.id} value={s.id}>{s.name} ({s.currentHp} HP)</option>)}
+                  </select>
+                </label>
+              )}
               {canAct && isPhysicalMode && (
                 <PhysicalInputPanel
                   actorName={hero.name}
                   onSubmit={(cards, rolls) => {
                     playSfx("combat", "attack");
-                    doHeroActionPhysical(hero.id, "attack", monster.id, cards, rolls);
+                    doHeroActionPhysical(hero.id, "attack", attackTargetId, cards, rolls);
                   }}
                   onSkip={() => {
                     playSfx("combat", "attack");
-                    doHeroAction(hero.id, "attack", monster.id);
+                    doHeroAction(hero.id, "attack", attackTargetId);
                   }}
                 />
               )}
-              {canAct && !isPhysicalMode && (
+              {canAct && (
                 <div className="flex gap-2 items-stretch">
+                  {!isPhysicalMode && (
                   <button
                     className={`btn-primary text-xs px-3 flex-shrink-0 ${
                       isCompanionMode && companionSuggestion?.action === "attack"
@@ -792,19 +816,21 @@ export function CombatView({ onBack }: Props) {
                     }`}
                     onClick={() => {
                       playSfx("combat", "attack");
-                      doHeroAction(hero.id, "attack", monster.id);
+                      doHeroAction(hero.id, "attack", attackTargetId);
                     }}
                   >
                     Take Turn
                   </button>
-                  {hero.items.length > 0 && (
+                  )}
+                  {(hero.items.length > 0 || state.party.sharedInventory.length > 0) && (
                     <div className="flex-1">
                       <ItemDropdown
-                        items={hero.items}
+                        items={[...hero.items, ...state.party.sharedInventory]}
+                        getDisabledReason={item => getItemUseRejection(state, hero.id, item.itemId)}
                         onOpenChange={(isOpen) => setOpenDropdownHeroId(isOpen ? hero.id : null)}
                         onUse={(itemName) => {
                           playSfx("ui", "button_click");
-                          doUseItem(hero.id, itemName, hero.id);
+                          doUseItem(hero.id, itemName, monster.id);
                         }}
                       />
                     </div>

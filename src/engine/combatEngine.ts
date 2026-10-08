@@ -713,6 +713,16 @@ export function calculateDamage(input: {
   };
 }
 
+function absorbShields(tokens: TokenInstance[], damage: number, bonus = 0): { tokens: TokenInstance[]; absorbed: number } {
+  let remaining = damage;
+  const kept = tokens.filter(token => {
+    if (token.type !== "shield" || remaining <= 0) return true;
+    remaining -= Math.min(remaining, token.value + bonus);
+    return false;
+  });
+  return { tokens: kept, absorbed: damage - remaining };
+}
+
 export function applyDamage(
   state: GameState,
   targetId: string,
@@ -720,14 +730,31 @@ export function applyDamage(
   breakdown: DamageBreakdown,
   isMonsterTarget: boolean
 ): { state: GameState; killed: boolean } {
-  if (!state.combat) return { state, killed: false };
+  if (!state.combat || state.combat.combatResult) return { state, killed: false };
+
+  if (isMonsterTarget && targetId !== state.combat.monster.id && targetId !== "monster") {
+    const target = state.combat.summons.find(s => s.id === targetId && s.alive);
+    if (!target) return { state, killed: false };
+    const hp = Math.max(0, target.currentHp - breakdown.finalDamage);
+    let next: GameState = { ...state, combat: { ...state.combat,
+      summons: state.combat.summons.map(s => s.id === targetId ? { ...s, currentHp: hp, alive: hp > 0 } : s),
+    } };
+    next = emitEvent(next, "DAMAGE_APPLIED", `${resolveActorName(state, attackerId)} dealt ${breakdown.finalDamage} damage to ${target.name}. HP: ${hp}/${target.maxHp}.`, {
+      actorId: attackerId, targetIds: [targetId],
+      details: { damage: breakdown.finalDamage, remainingHp: hp, breakdown, targetName: target.name, attackerName: resolveActorName(state, attackerId) },
+    });
+    if (hp === 0) next = emitEvent(next, "MONSTER_DEFEATED", `${target.name} defeated!`, { targetIds: [targetId], details: { summon: true } });
+    return { state: next, killed: hp === 0 };
+  }
+  if (isMonsterTarget && !state.combat.monster.alive) return { state, killed: false };
+  if (!isMonsterTarget && !state.party.heroes.some(h => h.id === targetId && h.alive)) return { state, killed: false };
 
   let killed = false;
   let newState = { ...state };
 
   if (isMonsterTarget) {
     const combat = { ...newState.combat! };
-    let monster = { ...combat.monster };
+    let monster = { ...combat.monster, specialState: { ...combat.monster.specialState } };
 
     if (monster.untargetable) {
       const eventState = emitEvent(newState, "DAMAGE_APPLIED", `${monster.name} is untargetable! Attack missed.`, {
@@ -746,21 +773,35 @@ export function applyDamage(
     }
 
     let damage = breakdown.finalDamage;
+    const resolvedBreakdown = { ...breakdown, notes: [...breakdown.notes] };
 
-    if (monster.specialState["colossal"]) {
+    if (monster.specialState["colossal"] && !breakdown.phaseThrough) {
+      const reduction = Math.min(damage, 2);
       damage = Math.max(0, damage - 2);
+      resolvedBreakdown.defenseReduction += reduction;
+      resolvedBreakdown.notes.push(`Colossal reduced ${reduction}`);
     }
 
     // Gargoyle Stone Form: immune to next N damage sources
     if (monster.specialState["stoneFormCharges"] && (monster.specialState["stoneFormCharges"] as number) > 0) {
       const charges = monster.specialState["stoneFormCharges"] as number;
       monster.specialState = { ...monster.specialState, stoneFormCharges: charges - 1 };
-      newState = emitEvent(newState, "DAMAGE_APPLIED", `${monster.name}: Stone Form absorbs damage! (${charges - 1} charges left)`, {
+      newState = emitEvent(newState, "ABILITY_TRIGGERED", `${monster.name}: Stone Form absorbs damage! (${charges - 1} charges left)`, {
         targetIds: [targetId],
         details: { stoneForm: true, chargesLeft: charges - 1 },
       });
+      resolvedBreakdown.defenseReduction += damage;
       damage = 0;
+      resolvedBreakdown.notes.push("Stone Form absorbed this attack");
     }
+
+    if (damage > 0 && !breakdown.phaseThrough) {
+      const shields = absorbShields(monster.tokens, damage);
+      monster.tokens = shields.tokens;
+      damage -= shields.absorbed;
+      resolvedBreakdown.shieldReduction += shields.absorbed;
+    }
+    resolvedBreakdown.finalDamage = damage;
 
     monster.currentHp = Math.max(0, monster.currentHp - damage);
 
@@ -794,12 +835,12 @@ export function applyDamage(
     combat.monster = monster;
     newState = { ...newState, combat };
 
-    if (damage > 0) {
+    {
       const attackerName = resolveActorName(newState, attackerId);
       newState = emitEvent(newState, "DAMAGE_APPLIED", `${attackerName} dealt ${damage} damage to ${monster.name}. HP: ${monster.currentHp}/${monster.maxHp}.`, {
         actorId: attackerId,
         targetIds: [targetId],
-        details: { damage, remainingHp: monster.currentHp, breakdown, attackerName, targetName: monster.name },
+        details: { damage, remainingHp: monster.currentHp, breakdown: resolvedBreakdown, attackerName, targetName: monster.name },
       });
 
       if (damage > newState.stats.biggestDamageEvent) {
@@ -821,6 +862,8 @@ export function applyDamage(
       });
     }
   } else {
+    let appliedDamage = 0;
+    const resolvedBreakdown = { ...breakdown, notes: [...breakdown.notes] };
     const newHeroes = newState.party.heroes.map((h) => {
       if (h.id !== targetId) return h;
       if (!h.alive) return h;
@@ -840,6 +883,10 @@ export function applyDamage(
 
       if (hero.perTurnFlags["immuneNextTurn"]) {
         damage = 0;
+      }
+      if (damage === 0 && breakdown.finalDamage > 0) {
+        resolvedBreakdown.defenseReduction += breakdown.finalDamage;
+        resolvedBreakdown.notes.push("Protection prevented this damage");
       }
 
       // Shield consumption: each shield token absorbs damage equal to its value (Aegis Wall adds +1)
@@ -861,6 +908,7 @@ export function applyDamage(
             totalAbsorb += absorbAmount;
           }
           damage -= totalAbsorb;
+          resolvedBreakdown.shieldReduction += totalAbsorb;
           hero.tokens = updatedTokens;
           if (totalAbsorb > 0) {
             newState = emitEvent(newState, "TOKEN_REMOVED", `Shields absorbed ${totalAbsorb} damage for ${hero.name}!`, {
@@ -871,6 +919,8 @@ export function applyDamage(
         }
       }
 
+      appliedDamage = damage;
+      resolvedBreakdown.finalDamage = damage;
       hero.currentHp = Math.max(0, hero.currentHp - damage);
 
       if (hero.currentHp === 0) {
@@ -915,28 +965,28 @@ export function applyDamage(
 
     newState = { ...newState, party: newParty };
 
-    if (breakdown.finalDamage > 0) {
+    {
       const hero = newHeroes.find(h => h.id === targetId);
-      newState = emitEvent(newState, "DAMAGE_APPLIED", `${resolveActorName(newState, attackerId)} dealt ${breakdown.finalDamage} damage to ${hero?.name ?? targetId}. HP: ${hero?.currentHp}/${hero?.maxHp}.`, {
+      newState = emitEvent(newState, "DAMAGE_APPLIED", `${resolveActorName(newState, attackerId)} dealt ${appliedDamage} damage to ${hero?.name ?? targetId}. HP: ${hero?.currentHp}/${hero?.maxHp}.`, {
         actorId: attackerId,
         targetIds: [targetId],
-        details: { damage: breakdown.finalDamage, remainingHp: hero?.currentHp, breakdown, targetName: hero?.name ?? targetId },
+        details: { damage: appliedDamage, remainingHp: hero?.currentHp, breakdown: resolvedBreakdown, targetName: hero?.name ?? targetId, attackerName: resolveActorName(newState, attackerId) },
       });
 
-      if (breakdown.finalDamage > newState.stats.biggestDamageEvent) {
+      if (appliedDamage > newState.stats.biggestDamageEvent) {
         const attackerName = resolveActorName(newState, attackerId);
         newState = {
           ...newState,
           stats: {
             ...newState.stats,
-            biggestDamageEvent: breakdown.finalDamage,
-            biggestDamageDescription: `${attackerName} → ${hero?.name ?? targetId} for ${breakdown.finalDamage}`,
+            biggestDamageEvent: appliedDamage,
+            biggestDamageDescription: `${attackerName} → ${hero?.name ?? targetId} for ${appliedDamage}`,
           },
         };
       }
 
       // Retributor: deal 1 damage back to attacker when damaged
-      if (hero?.alive && weaponHasTag(hero, "retributor") && attackerId !== "hazard" && attackerId !== "poison" && attackerId !== "burn") {
+      if (appliedDamage > 0 && hero?.alive && weaponHasTag(hero, "retributor") && attackerId !== "hazard" && attackerId !== "poison" && attackerId !== "burn") {
         const isMonsterAttacker = newState.combat?.monster.id === attackerId;
         if (isMonsterAttacker) {
           const retaliation = applyDamage(newState, newState.combat!.monster.id, hero.id, calculateDamage({ base: 1 }), true);
@@ -1043,6 +1093,12 @@ export function addToken(
 
   if (isMonsterTarget && state.combat) {
     const combat = { ...newState.combat! };
+    const summon = combat.summons.find(s => s.id === targetId && s.alive);
+    if (targetId !== combat.monster.id && targetId !== "monster") {
+      if (!summon || summon.tokens.filter(t => t.type === token.type).length >= token.maxStacks) return state;
+      combat.summons = combat.summons.map(s => s.id === targetId ? { ...s, tokens: [...s.tokens, token] } : s);
+      return emitEvent({ ...newState, combat }, "TOKEN_ADDED", `${token.name} added to ${summon.name}.`, { targetIds: [targetId], details: { tokenType: token.type, tokenName: token.name } });
+    }
     let monster = { ...combat.monster };
     const existing = monster.tokens.filter(t => t.type === token.type);
     if (existing.length < token.maxStacks) {
@@ -1092,9 +1148,9 @@ export function checkCombatEnd(state: GameState): { result: "victory" | "defeat"
     return { result: "defeat", reason: "All Heroes have fallen" };
   }
 
-  // Nightmare: must defeat Apexus within 40 turns
+  // Nightmare: must defeat Vyridian within 40 turns
   if (state.settings.difficulty === "nightmare" && state.combat.isFinalBoss && state.combat.turnCount >= 40) {
-    return { result: "defeat", reason: "Nightmare: 40-turn limit exceeded against Apexus" };
+    return { result: "defeat", reason: "Nightmare: 40-turn limit exceeded against Vyridian" };
   }
 
   if (state.combat.round > 10) {

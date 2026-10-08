@@ -91,9 +91,10 @@ function legacyWeaponNameMatch(weaponName: string, tag: string): boolean {
  * items are keyed by display name in the ITEMS record).
  */
 function lookupItemTags(item: ItemInstance): string[] | undefined {
-  if (item.tags && item.tags.length > 0) return item.tags;
   const data = resolveItemData(item);
-  return data?.tags;
+  if (data) return data.tags;
+  if (!item.itemId && item.tags && item.tags.length > 0) return item.tags;
+  return undefined;
 }
 
 /**
@@ -102,8 +103,8 @@ function lookupItemTags(item: ItemInstance): string[] | undefined {
  */
 export function itemHasTag(item: ItemInstance, tag: string): boolean {
   const tags = lookupItemTags(item);
-  if (tags && tags.includes(tag)) return true;
-  return legacyItemNameMatch(item.name, tag);
+  if (tags) return tags.includes(tag);
+  return !item.itemId && legacyItemNameMatch(item.name, tag);
 }
 
 // Legacy name → tag mapping for backward compatibility

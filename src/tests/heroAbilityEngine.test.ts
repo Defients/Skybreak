@@ -7,6 +7,7 @@ import { RngEngine } from "../utils/random";
 import { getLivingHeroes, getHeroById } from "../engine/rulesEngine";
 import { createDebuffStatus, createBuffStatus } from "../data/tokens";
 import { CLASS_DATA } from "../data/classes";
+import { ITEMS } from "../data/items";
 import type { GameState } from "../types/gameState";
 
 describe("Hero Ability Engine", () => {
@@ -585,14 +586,13 @@ describe("Hero Ability Engine — Specialization Triggers", () => {
     const originalMaxHp = getHeroById(combatState, heroId)!.maxHp;
     const originalBaseMaxHp = getHeroById(combatState, heroId)!.baseMaxHp;
 
-    // Trigger Sentinel spec by attacking until it fires
+    // Trigger the specialization directly; repeatedly attacking a defeated
+    // monster is illegal and must not be used to hunt for a random match.
     let newState = combatState;
-    for (let i = 0; i < 30; i++) {
-      const result = executeHeroAction(newState, new RngEngine(`sent-cln-${i}`), heroId, newState.combat!.monster.id);
-      newState = result.state;
-      const specEvents = newState.log.filter(e => e.type === "ABILITY_TRIGGERED" && e.summary.includes("Sentinel specialization"));
-      if (specEvents.length > 0) break;
-    }
+    const runeData = ITEMS["Mystic Rune"];
+    newState = { ...newState, party: { ...newState.party, heroes: newState.party.heroes.map(h => h.id === heroId
+      ? { ...h, items: [...h.items, { ...runeData, id: "sentinel-test-rune", quantity: 1 }] } : h) } };
+    newState = useItem(newState, heroId, "Mystic Rune", newState.combat!.monster.id, rng);
 
     // Verify maxHp was boosted during combat (originalMaxHp includes Tower Shield +1)
     const heroDuringCombat = getHeroById(newState, heroId);

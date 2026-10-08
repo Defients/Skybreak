@@ -33,7 +33,7 @@ export function executeHeroAction(
   heroId: string,
   targetId?: string
 ): HeroActionResult {
-  if (!state.combat) return { state, cards: [], matches: [] };
+  if (!state.combat || state.combat.combatResult || state.phase === "victory" || state.phase === "defeat") return { state, cards: [], matches: [] };
 
   let newState = state;
   const hero = getHeroById(newState, heroId);
@@ -997,6 +997,22 @@ function executeSpecAbility(
 
 // ─── Item Usage ──────────────────────────────────────────────────────────────
 
+/** Canonical eligibility, also used by the AI and item controls. */
+export function getItemUseRejection(state: GameState, heroId: string, itemName: string): string | null {
+  if (state.combat?.combatResult || state.phase === "victory" || state.phase === "defeat") return "Combat has ended.";
+  const hero = getHeroById(state, heroId);
+  if (!hero?.alive) return "This hero has fallen.";
+  if (hero.perTurnFlags["itemsDisabled"] || hero.perTurnFlags["itemDisabled"]) return "Items are disabled for this hero.";
+  const item = [...hero.items, ...state.party.sharedInventory].find(i => (i.itemId === itemName || i.name === itemName) && i.quantity > 0);
+  if (!item) return "This item is no longer available.";
+  if (itemHasTag(item, "lucky_charm")) return "Choosing a resolved die to reroll is not implemented yet; this charm will not be consumed.";
+  if (itemHasTag(item, "smoke_bomb") && state.combat?.isFinalBoss) return "Vyridian cannot be skipped.";
+  if (itemHasTag(item, "mystic_rune") && (hero.oncePerCombat[`spec_${hero.className}_${hero.specialization}`] || hero.oncePerCombat["specializationTriggered"])) return "Specialization already used this combat.";
+  if (itemHasTag(item, "speed_potion") && hero.perTurnFlags["extraAction"]) return "An extra action is already available.";
+  if (["bomb", "ability_blocker", "speed_potion", "mystic_rune"].some(tag => itemHasTag(item, tag)) && !state.combat) return "Use this item during combat.";
+  return null;
+}
+
 export function useItem(
   state: GameState,
   heroId: string,
@@ -1004,6 +1020,7 @@ export function useItem(
   targetId?: string,
   rng?: RngEngine
 ): GameState {
+  if (getItemUseRejection(state, heroId, itemName)) return state;
   let newState = state;
   const hero = getHeroById(newState, heroId);
   if (!hero || !hero.alive) return state;
@@ -1016,7 +1033,7 @@ export function useItem(
     return emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} cannot use items — item disabled!`, { actorId: heroId });
   }
 
-  const item = hero.items.find(i => (i.itemId && i.itemId === itemName) || (i.name === itemName && i.quantity > 0));
+  const item = [...hero.items, ...state.party.sharedInventory].find(i => (i.itemId === itemName || i.name === itemName) && i.quantity > 0);
   if (!item || item.quantity <= 0) return state;
 
   const itemId = item.id;
@@ -1028,7 +1045,8 @@ export function useItem(
         ? { ...h, items: h.items.map(i => i.id === itemId ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0) }
         : h
     );
-    return { ...s, party: { ...s.party, heroes } };
+    const sharedInventory = s.party.sharedInventory.map(i => i.id === itemId ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0);
+    return { ...s, party: { ...s.party, heroes, sharedInventory } };
   }
 
   if (itemHasTag(item, "minor_potion")) {
@@ -1063,11 +1081,11 @@ export function useItem(
       party: {
         ...newState.party,
         heroes: newState.party.heroes.map(h =>
-          h.id === heroId ? { ...h, buffs: [...h.buffs, createBuffStatus("Might", 1), createBuffStatus("Focus", 1)] } : h
+          h.id === heroId ? { ...h, perTurnFlags: { ...h.perTurnFlags, powerScrollActive: true } } : h
         ),
       },
     };
-    newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Power Scroll! +2 damage and +2 to next roll.`, { actorId: heroId });
+    newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Power Scroll! +3 damage on the next attack.`, { actorId: heroId });
   } else if (itemHasTag(item, "bomb")) {
     if (newState.combat) {
       newState = consumeItem(newState);
@@ -1089,13 +1107,14 @@ export function useItem(
   } else if (itemHasTag(item, "speed_potion")) {
     if (newState.combat) {
       newState = consumeItem(newState);
-      const combat = { ...newState.combat! };
-      combat.completedHeroTurns = combat.completedHeroTurns.filter(id => id !== heroId);
-      newState = { ...newState, combat };
+      newState = { ...newState, party: { ...newState.party,
+        heroes: newState.party.heroes.map(h => h.id === heroId
+          ? { ...h, perTurnFlags: { ...h.perTurnFlags, extraAction: true } } : h),
+      } };
       newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Speed Potion! Extra turn granted!`, { actorId: heroId });
     }
   } else if (itemHasTag(item, "mystic_rune")) {
-    if (!hero.oncePerCombat["specializationTriggered"]) {
+    if (!hero.oncePerCombat[`spec_${hero.className}_${hero.specialization}`]) {
       newState = consumeItem(newState);
       newState = triggerSpecializationAbility(newState, rng ?? new RngEngine(`${heroId}_item`), hero, targetId ?? newState.combat?.monster.id);
       newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Mystic Rune! Specialization activated!`, { actorId: heroId });
@@ -1114,14 +1133,17 @@ export function useItem(
     newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Lucky Charm! Next roll can be rerolled.`, { actorId: heroId });
   } else if (itemHasTag(item, "smoke_bomb")) {
     newState = consumeItem(newState);
-    newState = {
+    if (newState.combat) {
+      newState = { ...newState, combat: { ...newState.combat, combatResult: "retreat" } };
+      newState = emitEvent(newState, "COMBAT_ENDED", `${hero.name} used Smoke Bomb! Encounter skipped without combat rewards.`, { actorId: heroId, details: { result: "retreat", reason: "smoke_bomb" } });
+    } else newState = {
       ...newState,
       party: {
         ...newState.party,
         heroes: newState.party.heroes.map(h => h.alive ? { ...h, perTurnFlags: { ...h.perTurnFlags, smokeBombActive: true } } : h),
       },
     };
-    newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Smoke Bomb! Party can skip next combat room.`, { actorId: heroId });
+    if (!newState.combat) newState = emitEvent(newState, "ABILITY_TRIGGERED", `${hero.name} used Smoke Bomb! Party can skip next combat room.`, { actorId: heroId });
   } else if (itemHasTag(item, "treasure_map")) {
     newState = consumeItem(newState);
     newState = {

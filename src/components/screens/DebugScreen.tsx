@@ -44,6 +44,7 @@ export function DebugScreen({ onBack }: Props) {
       <div className="relative z-10 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-display gold-text">🔍 Debug / State Inspector</h2>
+        <button className="btn-ghost text-xs" onClick={onBack}>Back to game</button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -151,7 +152,7 @@ export function DebugScreen({ onBack }: Props) {
 
 function DebugRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between">
+    <div className="flex flex-wrap justify-between gap-1 break-all">
       <span className="text-spire-muted">{label}:</span>
       <span className="text-spire-white">{value}</span>
     </div>

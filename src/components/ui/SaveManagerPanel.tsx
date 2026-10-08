@@ -5,8 +5,8 @@ import {
   deleteSave,
   getAutosave,
   exportSave,
-  importSave,
   clearAllSaves,
+  isValidSaveShape,
 } from "../../engine/saveLoad";
 import { useGameStore } from "../../app/gameStore";
 import { useAudio } from "../../audio/useAudio";
@@ -52,15 +52,25 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
 
   const handleLoad = (save: SaveData) => {
     playSfx("ui", "button_click");
-    doLoadState(save.gameState);
-    onClose();
+    // Route the whole SaveData envelope through the canonical hydration
+    // boundary (validation + migration + RNG) inside doLoadState.
+    const ok = doLoadState(save);
+    if (ok) {
+      onClose();
+    } else {
+      setImportError(useGameStore.getState().loadError ?? "Save could not be loaded.");
+    }
   };
 
   const handleContinueAutosave = () => {
     if (!autosave) return;
     playSfx("ui", "button_click");
-    doLoadState(autosave.gameState);
-    onClose();
+    const ok = doLoadState(autosave);
+    if (ok) {
+      onClose();
+    } else {
+      setImportError(useGameStore.getState().loadError ?? "Autosave could not be loaded.");
+    }
   };
 
   const handleDelete = (index: number) => {
@@ -96,13 +106,16 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
     const reader = new FileReader();
     reader.onload = () => {
       const text = reader.result as string;
-      const loaded = importSave(text);
-      if (loaded) {
+      // The import path goes through the same canonical boundary as every
+      // other load: doLoadState parses, validates, migrates, and installs.
+      const ok = doLoadState(text);
+      if (ok) {
         playSfx("ui", "button_click");
-        doLoadState(loaded);
         onClose();
       } else {
-        setImportError("Failed to import save. Invalid or corrupted file.");
+        setImportError(
+          useGameStore.getState().loadError ?? "Failed to import save. Invalid or corrupted file."
+        );
       }
     };
     reader.readAsText(file);
@@ -115,6 +128,9 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
     setShowClearConfirm(false);
     refreshSaves();
   };
+
+  // Listing guard: malformed save entries must not crash the manager.
+  const isListable = (save: SaveData) => isValidSaveShape(save);
 
   const formatSaveInfo = (save: SaveData) => {
     const gs = save.gameState;
@@ -132,11 +148,13 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
   };
 
   const isFinished = (save: SaveData) =>
-    save.gameState.phase === "victory" || save.gameState.phase === "defeat";
+    isListable(save) &&
+    (save.gameState.phase === "victory" || save.gameState.phase === "defeat");
 
   const renderSaveRow = (save: SaveData, index: number, isAutosave = false) => {
-    const info = formatSaveInfo(save);
-    const savedDate = new Date(save.savedAt);
+    const listable = isListable(save);
+    const info = listable ? formatSaveInfo(save) : null;
+    const savedDate = new Date(typeof save?.savedAt === "string" ? save.savedAt : "");
     const finished = isFinished(save);
 
     return (
@@ -152,24 +170,35 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sm font-medium text-spire-white truncate">
-                {isAutosave ? "🔄 Autosave" : save.name}
+                {isAutosave ? "🔄 Autosave" : typeof save?.name === "string" ? save.name : "Save"}
               </span>
-              {finished && (
+              {!listable && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-spire-danger/20 text-spire-danger uppercase tracking-wider">
+                  corrupt
+                </span>
+              )}
+              {finished && info && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-spire-muted/20 text-spire-muted uppercase tracking-wider">
                   {info.phase}
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-spire-muted flex flex-wrap gap-x-3 gap-y-0.5">
-              <span>📍 {info.tier} · Room {info.room}</span>
-              <span>💰 {info.gold}g</span>
-              <span>💚 {info.alive}</span>
-              <span>⚔️ {info.difficulty}</span>
-              <span className="text-spire-muted/60">{savedDate.toLocaleDateString()} {savedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-            </div>
+            {info ? (
+              <div className="text-[11px] text-spire-muted flex flex-wrap gap-x-3 gap-y-0.5">
+                <span>📍 {info.tier} · Room {info.room}</span>
+                <span>💰 {info.gold}g</span>
+                <span>💚 {info.alive}</span>
+                <span>⚔️ {info.difficulty}</span>
+                <span className="text-spire-muted/60">{savedDate.toLocaleDateString()} {savedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+            ) : (
+              <div className="text-[11px] text-spire-muted/70">
+                Unreadable save data — can be deleted but not loaded.
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {!finished && (
+            {!finished && listable && (
               <button
                 className="text-xs px-3 py-1.5 rounded-lg bg-spire-accent/15 text-spire-accent border border-spire-accent/30 hover:bg-spire-accent/25 transition-colors"
                 onClick={() => isAutosave ? handleContinueAutosave() : handleLoad(save)}
@@ -210,7 +239,7 @@ export function SaveManagerPanel({ onClose }: SaveManagerPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
+    <div role="dialog" aria-modal="true" aria-label="Save Manager" onKeyDown={e => { if (e.key === "Escape") onClose(); }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         className="relative glass-card w-full max-w-lg max-h-[85vh] flex flex-col space-y-4 shadow-panel"

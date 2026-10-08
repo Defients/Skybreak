@@ -1,10 +1,38 @@
 import type { GameState } from "../types/gameState";
+import type { HeroState } from "../types/heroes";
+import type { ItemInstance } from "../types/inventory";
 import type { RngEngine } from "../utils/random";
 import type { CombatStrategy, MerchantStrategy, RestStrategy, SplitStrategy } from "../types/batch";
 import { getLivingHeroes, getHeroById, getDeadHeroes } from "./rulesEngine";
-import { executeHeroAction, useItem } from "./heroAbilityEngine";
-import { findItemByTag } from "../utils/tagMatchers";
+import { executeHeroAction, useItem, getItemUseRejection } from "./heroAbilityEngine";
+import { findItemByTag, itemHasTag } from "../utils/tagMatchers";
 import { getItemCost, getUpgradeCost } from "../data/items";
+import { buyItem, buyUpgrade, getMerchantPrice } from "./merchantEngine";
+
+// ─── random-legal item selection ──────────────────────────────────────────
+
+/**
+ * Item tags that map to an implemented branch in `useItem`. An item whose
+ * tags match none of these would be a silent no-op — not a "legal" action.
+ */
+function isItemUseLegal(state: GameState, hero: HeroState, item: ItemInstance): boolean {
+  return getItemUseRejection(state, hero.id, item.itemId) === null;
+}
+
+/**
+ * Items whose effect is aimed at the enemy (or at combat-level state).
+ * Everything else — potions, charms, scrolls, runes that buff the party —
+ * targets the using hero. Mystic Rune is on the offensive list because the
+ * specialization abilities it triggers (Shadowblade steal, Huntmaster mark,
+ * Timebender attack) expect an enemy target.
+ */
+const ENEMY_TARGET_ITEM_TAGS = ["bomb", "ability_blocker", "mystic_rune"];
+
+function itemTargetId(state: GameState, hero: HeroState, item: ItemInstance): string | undefined {
+  const monsterId = state.combat?.monster.id;
+  if (ENEMY_TARGET_ITEM_TAGS.some((tag) => itemHasTag(item, tag))) return monsterId;
+  return hero.id;
+}
 
 export interface AICombatDecision {
   action: "attack" | "use_item" | "end_turn";
@@ -85,13 +113,20 @@ export function aiPlayHeroTurn(
 
     case "random-legal": {
       const roll = rng.rollD6("ai_random_choice").total;
-      if (roll === 1 && hero.items.length > 0) {
-        const itemIdx = Math.floor(
-          (rng.rollD6("ai_item_pick").total / 6) * hero.items.length
-        );
-        const randomItem = hero.items[itemIdx];
-        if (randomItem && randomItem.quantity > 0) {
-          return { action: "use_item", itemName: randomItem.name, targetId: heroId };
+      if (roll === 1) {
+        // Select from legal item uses only. The index is derived with
+        // (roll - 1) % length so a d6 result of 6 can never produce an
+        // out-of-bounds index, and consumed/empty/disabled items are
+        // excluded before the pick instead of wasting the choice.
+        const usable = hero.items.filter((i) => isItemUseLegal(state, hero, i));
+        if (usable.length > 0) {
+          const itemRoll = rng.rollD6("ai_item_pick").total;
+          const randomItem = usable[(itemRoll - 1) % usable.length];
+          return {
+            action: "use_item",
+            itemName: randomItem.name,
+            targetId: itemTargetId(state, hero, randomItem),
+          };
         }
       }
       if (roll === 2) {
@@ -213,18 +248,18 @@ export function aiMerchantActions(
   const gold = state.party.gold;
 
   if (strategy === "heal-items" || strategy === "balanced") {
-    const potionCost = getItemCost("Minor Potion", state.spire.tier);
+    const potionCost = getMerchantPrice(state, getItemCost("Minor Potion", state.spire.tier), "item");
     for (const hero of living) {
       if (hero.currentHp / hero.maxHp < 0.6 && gold >= potionCost) {
         purchases.push({ type: "item", name: "Minor Potion", heroId: hero.id });
       }
     }
-    const upgradeCost = getUpgradeCost("HP Increase", state.spire.tier);
+    const upgradeCost = getMerchantPrice(state, getUpgradeCost("HP Increase", state.spire.tier));
     if (strategy === "balanced" && gold >= upgradeCost) {
       purchases.push({ type: "upgrade", name: "HP Increase", heroId: living[0].id });
     }
   } else if (strategy === "upgrades") {
-    const upgradeCost = getUpgradeCost("HP Increase", state.spire.tier);
+    const upgradeCost = getMerchantPrice(state, getUpgradeCost("HP Increase", state.spire.tier));
     for (const hero of living) {
       if (gold >= upgradeCost) {
         purchases.push({ type: "upgrade", name: "HP Increase", heroId: hero.id });
@@ -232,5 +267,12 @@ export function aiMerchantActions(
     }
   }
 
-  return purchases;
+  // Only propose transactions the engine can perform, with a shared budget.
+  let plannedState = state;
+  return purchases.filter(p => {
+    const next = p.type === "item" ? buyItem(plannedState, p.name, p.heroId) : buyUpgrade(plannedState, p.name, p.heroId);
+    if (next === plannedState) return false;
+    plannedState = next;
+    return true;
+  });
 }

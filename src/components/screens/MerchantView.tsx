@@ -16,8 +16,9 @@ import {
   getHeroPortrait,
 } from "../../assets/assetRegistry";
 import { Tooltip } from "../ui/Tooltip";
+import { InventoryManager } from "../ui/InventoryManager";
 import { ITEMS, PERMANENT_UPGRADES, HEALING_SERVICES } from "../../data/items";
-import { getSuggestedPurchases } from "../../engine/merchantEngine";
+import { getSuggestedPurchases, getPricedMerchant, getMerchantPrice, getItemPurchaseRejection } from "../../engine/merchantEngine";
 import type { SuggestedPurchase } from "../../engine/merchantEngine";
 import { suggestMerchantAction } from "../../engine/aiAdvisor";
 import { WEAPONS, WEAPON_RARITY_DATA } from "../../data/weapons";
@@ -43,12 +44,14 @@ function BuyButton({
   goldCoinUrl,
   cost,
   lockoutMs = 600,
+  disabledReason,
 }: {
   onBuy: () => void;
   disabled: boolean;
   goldCoinUrl: string | null;
   cost: number;
   lockoutMs?: number;
+  disabledReason?: string | null;
 }) {
   const [animating, setAnimating] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -74,6 +77,8 @@ function BuyButton({
         ${animating ? "animate-buy-pop" : ""}`}
       disabled={disabled || locked}
       onClick={handleClick}
+      aria-label={`Buy for ${cost} gold`}
+      title={disabled ? disabledReason ?? "Check gold, target eligibility, capacity, or purchase limits" : `Buy for ${cost} gold`}
     >
       {animating && goldCoinUrl && (
         <img
@@ -89,7 +94,7 @@ function BuyButton({
 
 const TIER_INFO: Record<number, { title: string; desc: string; items: string }> = {
   1: { title: "Tier 1 — Lower Astrilith", desc: "Base prices. Common and Rare weapons available. Items and services at their cheapest.", items: "Common & Rare weapons · All consumables · Basic enchantments" },
-  2: { title: "Tier 2 — Mid Astrilith", desc: "Prices increase ~30-50%. Epic weapons unlocked. Stronger enchantments and upgrades become available.", items: "Up to Epic weapons · All consumables · Advanced enchantments" },
+  2: { title: "Tier 2 — Mid Astrilith", desc: "Offers include the current tier and difficulty price modifiers. Epic weapons unlocked. Stronger enchantments and upgrades become available.", items: "Up to Epic weapons · All supported consumables · Advanced enchantments" },
   3: { title: "Tier 3 — Upper Astrilith", desc: "Highest prices. Legendary weapons unlocked. All items and services at maximum cost. Spend wisely before the final confrontation.", items: "All rarities including Legendary · All consumables · All enchantments" },
 };
 
@@ -460,7 +465,7 @@ export function MerchantView({ onBack }: Props) {
     onBack();
   };
 
-  const merchant = state.merchant;
+  const merchant = getPricedMerchant(state)!;
   const livingHeroes = getLivingHeroes(state);
   const heroId = selectedHero || livingHeroes[0]?.id || "";
   const selectedHeroState = state.party.heroes.find((h) => h.id === heroId);
@@ -468,6 +473,7 @@ export function MerchantView({ onBack }: Props) {
   const hasDeadHeroes = state.party.heroes.some((h) => !h.alive);
 
   const isHealingDisabled = (svcName: string): boolean => {
+    if (svcName.startsWith("Revive") && state.settings.difficulty === "hard") return true;
     if (state.party.gold < (merchant.healingServices.find((s) => s.name === svcName)?.cost ?? 0)) return true;
     if (svcName === "Full Restore" && allHeroesFullHp) return true;
     if (svcName === "Group Heal" && allHeroesFullHp) return true;
@@ -477,7 +483,8 @@ export function MerchantView({ onBack }: Props) {
   };
 
   const getHealingDisabledReason = (svcName: string): string | null => {
-    if (state.party.gold < (merchant.healingServices.find((s) => s.name === svcName)?.cost ?? 0)) return null;
+    if (svcName.startsWith("Revive") && state.settings.difficulty === "hard") return "death is permanent on Hard";
+    if (state.party.gold < (merchant.healingServices.find((s) => s.name === svcName)?.cost ?? 0)) return "not enough gold";
     if ((svcName === "Full Restore" || svcName === "Group Heal") && allHeroesFullHp) return "all full HP";
     if ((svcName === "Patch Up" || svcName === "First Aid") && selectedHeroState && selectedHeroState.currentHp >= selectedHeroState.maxHp) return "hero at full";
     if ((svcName === "Revive 50%" || svcName === "Revive Full") && !hasDeadHeroes) return "no dead heroes";
@@ -516,6 +523,7 @@ export function MerchantView({ onBack }: Props) {
         </div>
       </div>
       <div className="relative space-y-4 pb-20 lg:pb-0">
+      <InventoryManager />
       <div className="glass-panel p-4 sm:p-5 flex items-center justify-between relative z-50 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           {shopkeeperUrl && (
@@ -725,7 +733,7 @@ export function MerchantView({ onBack }: Props) {
                                   const idx = RARITY_ORD.indexOf(hero.weapon.rarity);
                                   const nextR = RARITY_ORD[idx + 1];
                                   const nrd = WEAPON_RARITY_DATA[nextR];
-                                  const upgCost = nrd.upgradeCost;
+                                  const upgCost = getMerchantPrice(state, nrd.upgradeCost);
                                   const canAfford = state.party.gold >= upgCost;
                                   const classIcon = getClassIcon(hero.className);
                                   return (
@@ -791,6 +799,7 @@ export function MerchantView({ onBack }: Props) {
               const isFeatured = item.name === "Minor Potion";
               const valuable = VALUABLE_ITEM_STYLES[item.name];
               const soldOut = item.quantity <= 0;
+              const rejection = getItemPurchaseRejection(state, item.name, heroId);
               return (
                 <div
                   key={i}
@@ -803,7 +812,7 @@ export function MerchantView({ onBack }: Props) {
                   style={{ minHeight: "110px" }}
                 >
                   {valuable && (
-                    <span className={`absolute top-1.5 right-1.5 text-[8px] px-1.5 py-0.5 rounded-full ${valuable.badge}`}>
+                    <span className={`absolute -top-2 right-1.5 text-[8px] px-1.5 py-0.5 rounded-full ${valuable.badge}`}>
                       {valuable.badgeText}
                     </span>
                   )}
@@ -823,6 +832,7 @@ export function MerchantView({ onBack }: Props) {
                   <div className="text-xs text-spire-muted leading-relaxed mt-2">
                     {formatAbilityText(effect)}
                   </div>
+                  {itemData?.itemId === "lucky_charm" && <p className="text-[10px] text-spire-warning mt-1">Unavailable: die selection for rerolls is not supported.</p>}
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-spire-border/20">
                     <span className="text-spire-gold text-xs font-medium flex items-center gap-1">
                       {goldCoinUrl && <img src={goldCoinUrl} alt="g" className="w-3.5 h-3.5 inline-block" />}
@@ -830,7 +840,8 @@ export function MerchantView({ onBack }: Props) {
                     </span>
                     <BuyButton
                       onBuy={() => handleBuyItem(item.name, heroId)}
-                      disabled={soldOut || state.party.gold < item.cost}
+                      disabled={!!rejection}
+                      disabledReason={rejection}
                       goldCoinUrl={goldCoinUrl}
                       cost={item.cost}
                       lockoutMs={LOCKOUT_MS}
@@ -975,7 +986,7 @@ export function MerchantView({ onBack }: Props) {
                   const idx = RARITY_ORD.indexOf(hero.weapon.rarity);
                   const nextR = RARITY_ORD[idx + 1];
                   const nrd = WEAPON_RARITY_DATA[nextR];
-                  const upgCost = nrd.upgradeCost;
+                  const upgCost = getMerchantPrice(state, nrd.upgradeCost);
                   const upgWeapons = WEAPONS.filter((w) => w.className === hero.className && w.rarity === nextR);
                   const chosenW = upgWeapons[0];
                   const chosenImg = getWeaponImage(chosenW?.name ?? "");
@@ -1044,7 +1055,7 @@ export function MerchantView({ onBack }: Props) {
             const repairEligible = livingHeroes.filter((h) => h.debuffs.length > 0 || h.perTurnFlags["weaponDisabled"] === true);
             if (reforgeEligible.length === 0 && repairEligible.length === 0) return null;
             const repairCosts: Record<number, number> = { 1: 30, 2: 45, 3: 68 };
-            const repairCost = repairCosts[merchant.tier] ?? 30;
+            const repairCost = getMerchantPrice(state, repairCosts[merchant.tier] ?? 30);
             return (
               <div className="flex items-center gap-1">
                 {reforgeEligible.length > 0 && (
@@ -1052,7 +1063,7 @@ export function MerchantView({ onBack }: Props) {
                     <div className="px-2 py-1.5 bg-blue-500/15 text-blue-300 text-[10px] font-bold uppercase tracking-wider">Reforge</div>
                     {reforgeEligible.map((hero) => {
                       const currentWData = WEAPONS.find((w) => w.id === hero.weapon.weaponId);
-                      const reforgeCost = Math.floor((currentWData?.baseCost ?? 50) * 0.5);
+                      const reforgeCost = getMerchantPrice(state, Math.floor((currentWData?.baseCost ?? 50) * 0.5));
                       const canAfford = state.party.gold >= reforgeCost;
                       const classIcon = getClassIcon(hero.className);
                       return (
@@ -1132,6 +1143,7 @@ export function MerchantView({ onBack }: Props) {
                   </div>
                 </div>
                 <div className="text-xs text-spire-muted leading-relaxed mt-2">{formatAbilityText(effect)}</div>
+                {(w.name === "Swift Blade" || w.name === "Reality Anchor") && <p className="text-[10px] text-spire-warning mt-1">The reroll effect is unavailable; ordinary class actions still work.</p>}
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-spire-border/20">
                   <span className="text-spire-gold text-xs font-medium flex items-center gap-1">
                     {goldCoinUrl && <img src={goldCoinUrl} alt="g" className="w-3.5 h-3.5 inline-block" />}
@@ -1184,6 +1196,7 @@ export function MerchantView({ onBack }: Props) {
                     </div>
                   </div>
                   <div className="text-xs text-spire-muted leading-relaxed mt-1.5">{formatAbilityText(effect)}</div>
+                  {ench.name === "Swift" && <p className="text-[10px] text-spire-warning mt-1">Unavailable: die selection for rerolls is not supported.</p>}
                   <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-purple-500/10">
                     <span className="text-spire-gold text-xs font-medium flex items-center gap-1">
                       {goldCoinUrl && <img src={goldCoinUrl} alt="g" className="w-3.5 h-3.5 inline-block" />}
@@ -1193,13 +1206,13 @@ export function MerchantView({ onBack }: Props) {
                       const hero = state.party.heroes.find(h => h.id === heroId);
                       const hasEnchantment = hero?.enchantment != null;
                       const canAfford = state.party.gold >= ench.cost;
-                      const disabled = hasEnchantment || !canAfford;
+                      const disabled = ench.name === "Swift" || hasEnchantment || !canAfford;
                       return (
                         <button
                           className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-200 ${disabled ? "bg-spire-bg/50 text-spire-muted/40 cursor-not-allowed" : "bg-purple-600/80 text-white hover:bg-purple-500 hover:scale-105"}`}
                           disabled={disabled}
                           onClick={() => handleBuyEnchantment(ench.name, heroId)}
-                          title={hasEnchantment ? "Hero already has an enchantment" : !canAfford ? "Not enough gold" : "Buy enchantment"}
+                          title={ench.name === "Swift" ? "Reroll selection is unavailable" : hasEnchantment ? "Hero already has an enchantment" : !canAfford ? "Not enough gold" : "Buy enchantment"}
                         >
                           {hasEnchantment ? "Owned" : "Buy"}
                         </button>
@@ -1293,7 +1306,7 @@ export function MerchantView({ onBack }: Props) {
         const idx = RARITY_ORD.indexOf(upgradeConfirmHero.weapon.rarity);
         const nextR = RARITY_ORD[idx + 1];
         const nrd = WEAPON_RARITY_DATA[nextR];
-        const upgCost = nrd.upgradeCost;
+        const upgCost = getMerchantPrice(state, nrd.upgradeCost);
         const upgWeapons = WEAPONS.filter((w) => w.className === upgradeConfirmHero.className && w.rarity === nextR);
         const chosenW = upgWeapons[0];
         const chosenImg = getWeaponImage(chosenW?.name ?? "");

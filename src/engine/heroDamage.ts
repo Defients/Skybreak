@@ -7,7 +7,7 @@ import type { GameState } from "../types/gameState";
 import type { HeroState } from "../types/heroes";
 import type { MatchResult } from "../types/combat";
 import { emitEvent } from "./eventLog";
-import { getLivingHeroes, selectTargetByPriority } from "./rulesEngine";
+import { getLivingHeroes, getHeroById, selectTargetByPriority } from "./rulesEngine";
 import {
   calculateDamage,
   applyDamage,
@@ -26,16 +26,25 @@ export function applyHeroDamage(
   isDouble: boolean = false,
   _modifiedRoll: number = 0
 ): { state: GameState; killed: boolean } {
+  // Multi-hit/reroll actions must consume buffs from the updated hero state.
+  hero = getHeroById(state, hero.id) ?? hero;
   let newState = state;
   const matchBonus = matches[0]?.bonusDamage || 0;
   const enchantment = hero.enchantment;
   const modifiedRoll = newState.combat?.currentHeroRoll ?? 0;
-  const targetTokens = newState.combat!.monster.tokens;
+  const targetTokens = newState.combat!.summons.find(s => s.id === targetId)?.tokens ?? newState.combat!.monster.tokens;
   const targetToken = targetTokens.find(t => t.type === "target");
   const tokenBonus = targetToken ? 1 : 0;
 
   // Weapon bonus
   let weaponBonus = 0;
+  if (hero.perTurnFlags["powerScrollActive"]) {
+    weaponBonus += 3;
+    newState = { ...newState, party: { ...newState.party,
+      heroes: newState.party.heroes.map(h => h.id === hero.id
+        ? { ...h, perTurnFlags: { ...h.perTurnFlags, powerScrollActive: false } } : h),
+    } };
+  }
   const weaponDisabled = hero.perTurnFlags["weaponDisabled"] === true;
 
   if (!weaponDisabled) {
@@ -109,7 +118,8 @@ export function applyHeroDamage(
   });
 
   const isMonster = targetId === newState.combat!.monster.id || targetId === "monster";
-  const result = applyDamage(newState, isMonster ? newState.combat!.monster.id : targetId, hero.id, breakdown, isMonster);
+  const isEnemy = isMonster || newState.combat!.summons.some(s => s.id === targetId && s.alive);
+  const result = applyDamage(newState, isMonster ? newState.combat!.monster.id : targetId, hero.id, breakdown, isEnemy);
   newState = result.state;
 
   // Enchantment: Vampiric — heal 1 HP on rolls 5-6
@@ -170,12 +180,12 @@ export function applyHeroDamage(
   // Ooze Trail reflect — only on hero rolls 1-2
   if (isMonster && newState.combat?.monster.specialState["oozeTrail"] && modifiedRoll <= 2) {
     newState = applyDamage(newState, hero.id, newState.combat.monster.id, calculateDamage({ base: 1 }), false).state;
-    newState = emitEvent(newState, "DAMAGE_APPLIED", `Ooze Trail: ${hero.name} takes 1 reflect damage! (rolled ${modifiedRoll})`, { targetIds: [hero.id] });
+    newState = emitEvent(newState, "ABILITY_TRIGGERED", `Ooze Trail: reflect triggered on ${hero.name} (rolled ${modifiedRoll}).`, { targetIds: [hero.id] });
   }
   // Thorns reflect
   if (isMonster && newState.combat?.monster.specialState["thorns"]) {
     newState = applyDamage(newState, hero.id, newState.combat.monster.id, calculateDamage({ base: 1 }), false).state;
-    newState = emitEvent(newState, "DAMAGE_APPLIED", `Thorns: ${hero.name} takes 1 thorn damage!`, { targetIds: [hero.id] });
+    newState = emitEvent(newState, "ABILITY_TRIGGERED", `Thorns: reflect triggered on ${hero.name}.`, { targetIds: [hero.id] });
   }
 
   // Weapon: Longshot — all attacks generate +10g; critical hits on 6 give +30g

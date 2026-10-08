@@ -162,7 +162,6 @@ export function executeSummonTurns(state: GameState, rng: RngEngine): GameState 
     if (target) {
       const r = applyDamage(newState, target.id, summon.id, calculateDamage({ base: data.damage }), false);
       newState = r.state;
-      newState = emitEvent(newState, "DAMAGE_APPLIED", `${summon.name} dealt ${data.damage} to ${target.name}.`, { targetIds: [target.id], details: { damage: data.damage } });
     }
   }
   const combat = { ...newState.combat! };

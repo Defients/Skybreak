@@ -107,7 +107,7 @@ export function RestView({ onBack }: Props) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         {REST_OPTIONS.map((opt, i) => {
           const choiceNum = (i + 1) as 1 | 2 | 3 | 4;
-          const isDisabled = (choiceNum === 2 && dead.length === 0) || (choiceNum === 4 && state?.party?.maxHpBoostUsed);
+          const isDisabled = (choiceNum === 2 && (dead.length === 0 || state.settings.difficulty === "hard")) || (choiceNum === 4 && state?.party?.maxHpBoostUsed);
           const isRecommended = isCompanionMode && restSuggestion?.choice === choiceNum;
           return (
             <button
@@ -140,6 +140,7 @@ export function RestView({ onBack }: Props) {
               {choiceNum === 2 && dead.length === 0 && (
                 <div className="text-[10px] text-spire-muted/50">No dead Heroes to revive</div>
               )}
+              {choiceNum === 2 && state.settings.difficulty === "hard" && <div className="text-[10px] text-spire-warning">Death is permanent in Hard mode.</div>}
               {choiceNum === 4 && state?.party?.maxHpBoostUsed && (
                 <div className="text-[10px] text-spire-muted/50">Already used this run</div>
               )}

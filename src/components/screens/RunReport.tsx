@@ -32,6 +32,7 @@ export function RunReport({ state, onHome }: Props) {
   const isVictory = state.phase === "victory";
   const score = calculateScore(state);
   const livingHeroes = getLivingHeroes(state);
+  const defeatReason = [...state.log].reverse().find(e => e.type === "DEFEAT")?.summary;
   const { playMusic, playSfx } = useAudio();
   const [capsuleCopied, setCapsuleCopied] = useState(false);
   const verdict = getPrimaryVerdict(state);
@@ -103,7 +104,9 @@ export function RunReport({ state, onHome }: Props) {
         <p className="text-spire-muted text-sm sm:text-base leading-relaxed max-w-md mx-auto">
           {isVictory
             ? "The judgment is survived. The ascent is complete."
-            : <>The party has fallen.<br />The Astrilith claims another group of adventurers.</>}
+            : livingHeroes.length > 0
+              ? defeatReason ?? "The ascent ended before victory. Surviving heroes remain alive."
+              : <>The party has fallen.<br />The Astrilith claims another group of adventurers.</>}
         </p>
         {isVictory && score.title && (
           <div className="mt-5 flex items-center justify-center gap-2 text-lg gold-text">

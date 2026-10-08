@@ -60,7 +60,7 @@ export interface ItemEntry {
   effect?: string;
 }
 
-export function ItemDropdown({ items, onUse, onOpenChange }: { items: ItemEntry[]; onUse: (itemName: string) => void; onOpenChange?: (open: boolean) => void }) {
+export function ItemDropdown({ items, onUse, onOpenChange, getDisabledReason }: { items: ItemEntry[]; onUse: (itemName: string) => void; onOpenChange?: (open: boolean) => void; getDisabledReason?: (item: ItemEntry) => string | null }) {
   const [open, setOpen] = useState(false);
 
   const toggle = () => {
@@ -75,6 +75,8 @@ export function ItemDropdown({ items, onUse, onOpenChange }: { items: ItemEntry[
         type="button"
         className="input w-full text-xs flex items-center justify-between cursor-pointer"
         onClick={() => toggle()}
+        aria-expanded={open}
+        aria-label="Use an item"
       >
         <span>Use Item...</span>
         <span className={`text-spire-muted text-[10px] transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
@@ -87,13 +89,16 @@ export function ItemDropdown({ items, onUse, onOpenChange }: { items: ItemEntry[
               const itemData = resolveItemData(item);
               const effect = itemData?.effect ?? item.effect ?? "";
               const itemImg = getItemImageById(item.itemId ?? "") ?? getItemImage(item.name);
+              const disabledReason = getDisabledReason?.(item);
               return (
                 <button
                   key={idx}
                   type="button"
+                  disabled={!!disabledReason}
+                  title={disabledReason ?? effect}
                   className="w-full text-left px-2.5 py-2 transition-colors text-xs hover:bg-spire-accent/10 flex items-start gap-2 border-b border-spire-border/20 last:border-0"
                   onClick={() => {
-                    onUse(item.name);
+                    onUse(item.itemId);
                     setOpen(false);
                     onOpenChange?.(false);
                   }}
@@ -102,6 +107,7 @@ export function ItemDropdown({ items, onUse, onOpenChange }: { items: ItemEntry[
                     <img src={itemImg} alt={item.name} className="w-7 h-7 rounded object-cover border border-spire-border/50 flex-shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
+                    {disabledReason && <div className="text-spire-warning text-[10px]">{disabledReason}</div>}
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-spire-white truncate">{item.name}</span>
                       {item.quantity > 1 && <span className="text-spire-muted text-[10px] flex-shrink-0">x{item.quantity}</span>}

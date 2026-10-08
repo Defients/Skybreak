@@ -122,7 +122,7 @@ export function isRoomResolved(state: GameState): boolean {
 }
 
 export function markRoomResolved(state: GameState): GameState {
-  if (!state.spire.currentRoom) return state;
+  if (!state.spire.currentRoom || state.spire.currentRoom.resolved) return state;
 
   const newRooms = [...state.spire.rooms];
   const idx = state.spire.roomIndex;

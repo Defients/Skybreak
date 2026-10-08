@@ -1,6 +1,8 @@
 import type { GameState, SaveData } from "../types/gameState";
+import type { ItemInstance } from "../types/inventory";
+import type { RngState } from "../types/gameState";
 import { WEAPONS } from "../data/weapons";
-import { ITEMS, resolveItemData } from "../data/items";
+import { ITEMS_BY_ID, getItemDataByName } from "../data/items";
 import { RngEngine } from "../utils/random";
 
 const STORAGE_KEY = "skybreak_saves";
@@ -49,6 +51,51 @@ const LEGACY_WEAPON_NAMES: Record<string, string> = {
   "Astral Rod": "Astril Rod",
 };
 
+/**
+ * Migration-boundary item resolution. Unlike the strict runtime resolver
+ * (`resolveItemData`, which is ID-only), this upgrades pre-ID save items:
+ * a resolvable stable `itemId` wins; otherwise the legacy display name is
+ * resolved against canonical item data and the correct `itemId` is assigned.
+ *
+ * The item's instance `id`, `quantity`, and existing fields are preserved —
+ * only missing canonical fields (itemId, tags, effect, stackLimit, isJoker)
+ * are backfilled. Items that resolve by neither ID nor name are returned
+ * untouched: unknown or obsolete content is preserved explicitly, never
+ * silently replaced or deleted.
+ */
+function migrateItemInstance(item: ItemInstance): ItemInstance {
+  const legacy = item as Partial<ItemInstance>;
+  const hasValidId =
+    typeof legacy.itemId === "string" &&
+    legacy.itemId.length > 0 &&
+    ITEMS_BY_ID[legacy.itemId] !== undefined;
+  const hasTags = Array.isArray(legacy.tags) && legacy.tags.length > 0;
+  if (hasValidId && hasTags) return item;
+
+  const data =
+    (hasValidId ? ITEMS_BY_ID[legacy.itemId!] : undefined) ??
+    (typeof legacy.name === "string" ? getItemDataByName(legacy.name) : undefined);
+  if (!data) {
+    console.warn(
+      `Save migration: unrecognized item "${String(legacy.name)}" — preserving instance unchanged`
+    );
+    return item;
+  }
+
+  return {
+    ...(item as ItemInstance),
+    itemId: data.itemId,
+    tags: hasTags ? item.tags : data.tags,
+    effect:
+      typeof legacy.effect === "string" && legacy.effect.length > 0
+        ? item.effect
+        : data.effect,
+    stackLimit:
+      typeof legacy.stackLimit === "number" ? item.stackLimit : data.stackLimit,
+    isJoker: legacy.isJoker ?? data.isJoker,
+  };
+}
+
 export function migrateLegacyState(state: GameState): GameState {
   try {
     let migrated = state;
@@ -86,13 +133,11 @@ export function migrateLegacyState(state: GameState): GameState {
       };
     }
 
-    // Populate tags/itemId on legacy saves that predate the tag system
-    if (migrated.party?.heroes) {
-      migrated = {
-        ...migrated,
-        party: {
-          ...migrated.party,
-          heroes: migrated.party.heroes.map((h) => {
+    // Populate tags/itemId on legacy saves that predate the tag system —
+    // for hero inventories AND the shared party inventory.
+    if (migrated.party) {
+      const heroes = Array.isArray(migrated.party.heroes)
+        ? migrated.party.heroes.map((h) => {
             let newHero = h;
             // Backfill weapon tags from WeaponData
             if (newHero.weapon && !newHero.weapon.tags) {
@@ -101,20 +146,21 @@ export function migrateLegacyState(state: GameState): GameState {
                 newHero = { ...newHero, weapon: { ...newHero.weapon, tags: weaponData.tags } };
               }
             }
-            // Backfill item tags and itemId from ItemData
-            if (newHero.items && newHero.items.length > 0) {
-              const updatedItems = newHero.items.map(i => {
-                if (i.tags && i.itemId) return i;
-                const itemData = resolveItemData(i);
-                if (itemData) {
-                  return { ...i, itemId: itemData.itemId, tags: itemData.tags };
-                }
-                return i;
-              });
-              newHero = { ...newHero, items: updatedItems };
+            // Backfill item tags and itemId via the migration-boundary resolver
+            if (Array.isArray(newHero.items) && newHero.items.length > 0) {
+              newHero = { ...newHero, items: newHero.items.map(migrateItemInstance) };
             }
             return newHero;
-          }),
+          })
+        : migrated.party.heroes;
+      migrated = {
+        ...migrated,
+        party: {
+          ...migrated.party,
+          heroes,
+          sharedInventory: Array.isArray(migrated.party.sharedInventory)
+            ? migrated.party.sharedInventory.map(migrateItemInstance)
+            : migrated.party.sharedInventory,
         },
       };
     }
@@ -174,23 +220,17 @@ export function autosave(state: GameState): boolean {
 }
 
 /**
- * Structural validation for a SaveData object. Checks that the parsed JSON
- * has the required top-level fields and that gameState has the minimum
- * required shape (party with heroes, meta, spire). Returns true if valid.
+ * Structural validation for a raw GameState object: known phase enum, a
+ * party with well-formed heroes, and meta/spire objects. The serialized RNG
+ * is intentionally NOT part of this check — a corrupt RNG is recoverable
+ * (the store rebuilds a deterministic engine from meta.seed), while a
+ * corrupt party is not.
  */
-function isValidSaveShape(data: unknown): data is SaveData {
-  if (typeof data !== "object" || data === null) return false;
-  const d = data as Record<string, unknown>;
-  if (typeof d.version !== "string") return false;
-  if (typeof d.savedAt !== "string") return false;
-  if (typeof d.name !== "string") return false;
-  const gs = d.gameState;
+function isValidGameStateShape(gs: unknown): gs is GameState {
   if (typeof gs !== "object" || gs === null) return false;
   const g = gs as Record<string, unknown>;
-  // Minimum required gameState fields.
-  if (typeof g.phase !== "string") return false;
   // Phase must be a known GamePhase value, not an arbitrary string.
-  if (!VALID_PHASES.has(g.phase)) return false;
+  if (typeof g.phase !== "string" || !VALID_PHASES.has(g.phase)) return false;
   if (typeof g.party !== "object" || g.party === null) return false;
   const party = g.party as Record<string, unknown>;
   if (!Array.isArray(party.heroes)) return false;
@@ -205,43 +245,152 @@ function isValidSaveShape(data: unknown): data is SaveData {
   }
   if (typeof g.meta !== "object" || g.meta === null) return false;
   if (typeof g.spire !== "object" || g.spire === null) return false;
-  // RNG must be present and well-shaped (or absent, which is tolerated).
-  if (g.rng !== undefined && g.rng !== null) {
-    if (typeof g.rng !== "object") return false;
-    const rng = g.rng as Record<string, unknown>;
-    if (typeof rng.seed !== "string") return false;
-    if (typeof rng.step !== "number") return false;
-    // Bound the step: a negative, non-finite, or absurdly large step is not a
-    // valid replay position and would loop unboundedly in deserialize.
-    if (!Number.isFinite(rng.step) || rng.step < 0 || rng.step > 1_000_000) return false;
+  if (g.welcomeBonusRolls !== undefined) {
+    if (!Array.isArray(g.welcomeBonusRolls) || g.welcomeBonusRolls.some(r =>
+      typeof r !== "object" || r === null || !Number.isInteger(r.heroId) || ![r.die1, r.die2].every(d => Number.isInteger(d) && d >= 1 && d <= 6))) return false;
   }
   return true;
 }
 
-export function loadSave(saveData: SaveData): GameState | null {
-  try {
-    if (!isValidSaveShape(saveData)) {
-      console.error("Save data failed structural validation");
-      return null;
+/**
+ * A serialized RNG position is usable only if it carries a string seed and a
+ * bounded, non-negative, finite step (see RngEngine.deserialize's clamp).
+ */
+function isValidRngStateShape(rng: unknown): rng is RngState {
+  if (typeof rng !== "object" || rng === null) return false;
+  const r = rng as Record<string, unknown>;
+  if (typeof r.seed !== "string" || r.seed.length === 0) return false;
+  if (typeof r.step !== "number") return false;
+  if (!Number.isFinite(r.step) || r.step < 0 || r.step > 1_000_000) return false;
+  return true;
+}
+
+/**
+ * Structural validation for a SaveData object: required top-level fields
+ * plus a well-shaped gameState. Exported so listing UIs can mark malformed
+ * entries instead of crashing on them.
+ */
+export function isValidSaveShape(data: unknown): data is SaveData {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  if (typeof d.version !== "string") return false;
+  if (typeof d.savedAt !== "string") return false;
+  if (typeof d.name !== "string") return false;
+  return isValidGameStateShape(d.gameState);
+}
+
+export type HydrateRejectionReason = "unparseable" | "invalid_shape";
+
+export interface HydrateSuccess {
+  ok: true;
+  /** Migrated, validated game state, ready for store installation. */
+  state: GameState;
+  /** Non-fatal issues encountered during hydration (version drift, RNG reset). */
+  warnings: string[];
+  /** The save's declared version, when present. */
+  sourceVersion: string | null;
+  /** True when a valid serialized RNG position survived hydration. */
+  rngRestored: boolean;
+}
+
+export interface HydrateFailure {
+  ok: false;
+  error: string;
+  reason: HydrateRejectionReason;
+}
+
+export type HydrateResult = HydrateSuccess | HydrateFailure;
+
+/**
+ * The canonical save hydration boundary. Every entry point that installs a
+ * persisted or externally supplied game state MUST route through here:
+ *
+ *   parse (if string) → unwrap SaveData envelope → structural validation →
+ *   legacy migration → RNG validation → result
+ *
+ * Accepts a JSON string, a SaveData envelope, or a bare GameState object.
+ * Never mutates its input. Never throws.
+ */
+export function hydrateSave(input: unknown): HydrateResult {
+  // 1. Parse serialized input.
+  let parsed: unknown = input;
+  if (typeof input === "string") {
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      return { ok: false, error: "Save file is not valid JSON.", reason: "unparseable" };
     }
-    if (saveData.version !== VERSION) {
-      console.warn(`Save version mismatch: ${saveData.version} vs ${VERSION}`);
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return { ok: false, error: "Save data is not an object.", reason: "invalid_shape" };
+  }
+
+  const warnings: string[] = [];
+
+  // 2. Unwrap a SaveData envelope when present; otherwise treat the value as
+  //    a bare GameState (sandbox/test/engine-internal loads).
+  let candidate: unknown = parsed;
+  let sourceVersion: string | null = null;
+  const rec = parsed as Record<string, unknown>;
+  if ("gameState" in rec) {
+    candidate = rec.gameState;
+    if (typeof rec.version === "string") {
+      sourceVersion = rec.version;
+      if (rec.version !== VERSION) {
+        // Unknown/future versions are tolerated — the structural validator is
+        // the real gate — but the drift is reported so it stays visible.
+        warnings.push(`Save version ${rec.version} differs from current ${VERSION}; loaded with migration.`);
+      }
+    } else {
+      warnings.push("Save has no version marker; treated as legacy data.");
     }
-    const migrated = migrateLegacyState(saveData.gameState);
-    // Validate that the RNG can be deserialized (throws on malformed data).
-    if (migrated.rng) {
+  }
+
+  // 3. Structural validation of the game state itself.
+  if (!isValidGameStateShape(candidate)) {
+    return {
+      ok: false,
+      error: "Save failed structural validation (unknown phase, or missing/malformed party, meta, or spire).",
+      reason: "invalid_shape",
+    };
+  }
+
+  // 4. Version-aware legacy migration (canon names, item IDs/tags, shared
+  //    inventory). Never throws — falls back to the input on internal error.
+  let migrated = migrateLegacyState(candidate);
+
+  // 5. Serialized RNG ownership. A missing or malformed RNG section is
+  //    recoverable: strip it so the store deterministically rebuilds from
+  //    meta.seed rather than silently inheriting a corrupt replay position.
+  let rngRestored = false;
+  if (migrated.rng !== undefined && migrated.rng !== null) {
+    if (isValidRngStateShape(migrated.rng)) {
       try {
         RngEngine.deserialize(migrated.rng);
-      } catch (e) {
-        console.error("Save data has corrupt RNG, clearing RNG field:", e);
-        return { ...migrated, rng: undefined as any };
+        rngRestored = true;
+      } catch {
+        // fall through to strip
       }
     }
-    return migrated;
-  } catch (e) {
-    console.error("Failed to load save:", e);
+    if (!rngRestored) {
+      migrated = { ...migrated, rng: undefined as unknown as RngState };
+      warnings.push("Serialized RNG state was corrupt; replay position will restart from the run seed.");
+    }
+  } else {
+    warnings.push("Save carries no serialized RNG; the run seed will be used.");
+  }
+
+  return { ok: true, state: migrated, warnings, sourceVersion, rngRestored };
+}
+
+export function loadSave(saveData: SaveData): GameState | null {
+  const result = hydrateSave(saveData);
+  if (!result.ok) {
+    console.error("Failed to load save:", result.error);
     return null;
   }
+  for (const w of result.warnings) console.warn(w);
+  return result.state;
 }
 
 function readCurrentSaves(): SaveData[] {
@@ -303,18 +452,26 @@ export function importLegacySaves(): number {
   }
 }
 
+/**
+ * Read the resumable autosave through the recovery chain:
+ * current autosave → last-good autosave → legacy "skyward_ascent" autosave.
+ * Entries that fail to parse or fail structural validation are skipped
+ * (not deleted) so a corrupt current autosave recovers to the last-good
+ * copy instead of crashing the Continue flow.
+ */
 export function getAutosave(): SaveData | null {
-  try {
-    let raw = localStorage.getItem(AUTOSAVE_KEY);
-    // Fall back to the legacy autosave key if the current one is absent, so
-    // players who upgrade mid-run do not lose their autosave.
-    if (!raw) raw = localStorage.getItem(LEGACY_AUTOSAVE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as SaveData;
-    return { ...data, gameState: migrateLegacyState(data.gameState) };
-  } catch {
-    return null;
+  for (const key of [AUTOSAVE_KEY, AUTOSAVE_LASTGOOD_KEY, LEGACY_AUTOSAVE_KEY]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const data = JSON.parse(raw) as SaveData;
+      if (!isValidSaveShape(data)) continue;
+      return { ...data, gameState: migrateLegacyState(data.gameState) };
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 /**
@@ -338,6 +495,7 @@ export function getLastGoodAutosave(): SaveData | null {
     const raw = localStorage.getItem(AUTOSAVE_LASTGOOD_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as SaveData;
+    if (!isValidSaveShape(data)) return null;
     return { ...data, gameState: migrateLegacyState(data.gameState) };
   } catch {
     return null;
@@ -366,13 +524,9 @@ export function exportSave(state: GameState): string {
 }
 
 export function importSave(json: string): GameState | null {
-  try {
-    const data = JSON.parse(json);
-    // loadSave performs structural + semantic validation.
-    return loadSave(data as SaveData);
-  } catch {
-    return null;
-  }
+  // hydrateSave is the canonical boundary: parse → validate → migrate → RNG.
+  const result = hydrateSave(json);
+  return result.ok ? result.state : null;
 }
 
 export function clearAllSaves(): void {

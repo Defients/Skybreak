@@ -290,7 +290,7 @@ export function AppShell({ state, screen, onNavigate, showNav, isHomePage, child
         <div className="flex items-center justify-between px-3 sm:px-6 py-2.5">
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+              className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0 w-[90px] sm:w-[144px] min-h-[44px]"
               onClick={() => handleLogoClick()}
               title="Return to Home"
               aria-label="Return to Home"
@@ -309,7 +309,7 @@ export function AppShell({ state, screen, onNavigate, showNav, isHomePage, child
               )}
             </button>
             {state && (
-              <div className="hidden sm:flex items-center gap-3 border-l border-spire-border/40 pl-3 ml-24 sm:ml-36">
+              <div className="hidden lg:flex items-center gap-3 border-l border-spire-border/40 pl-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] uppercase tracking-wider text-spire-muted/60">Tier</span>
                   <span className="text-sm font-medium text-spire-gold">{state.spire.tier}</span>
@@ -331,7 +331,7 @@ export function AppShell({ state, screen, onNavigate, showNav, isHomePage, child
             )}
           </div>
             {state && (
-              <div className="sm:hidden relative ml-auto mr-2" ref={mobileInfoRef}>
+              <div className="lg:hidden relative ml-auto mr-2" ref={mobileInfoRef}>
                 <button
                   className="text-[13px] px-2 py-1 rounded-lg bg-spire-bg/40 border border-spire-border/30 text-spire-muted hover:text-spire-white transition-colors min-h-[44px] min-w-[44px]"
                   onClick={() => setShowMobileInfo(!showMobileInfo)}
