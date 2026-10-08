@@ -74,20 +74,22 @@ export function summarize(values: number[]): NumericSummary | undefined {
 
 // ─── Evidence tiers ──────────────────────────────────────────────────────────
 
-export type EvidenceTier = "insufficient" | "exploratory" | "replicated";
+export type EvidenceTier = "insufficient" | "exploratory" | "estimated" | "replicated";
 
 /**
- * Explicit evidence criteria:
+ * Explicit evidence criteria — sample size alone is never replication.
  *   <10 valid runs        → insufficient (numbers shown, no conclusions)
  *   10–49 valid runs      → exploratory indication
- *   ≥50 valid runs        → replicated under this protocol
- * "Confirmed" additionally requires a held-out confirmation run — a
- * workflow distinction, not a computation.
+ *   ≥50 valid runs        → estimated (a point estimate with uncertainty)
+ *   replicated            → ONLY when an independent experiment reproduced
+ *                           the result (a workflow claim, never derivable
+ *                           from a single sample).
  */
-export function evidenceTier(validRuns: number): EvidenceTier {
+export function evidenceTier(validRuns: number, independentlyReplicated = false): EvidenceTier {
+  if (independentlyReplicated && validRuns >= 10) return "replicated";
   if (validRuns < 10) return "insufficient";
   if (validRuns < 50) return "exploratory";
-  return "replicated";
+  return "estimated";
 }
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
@@ -117,18 +119,22 @@ export function aggregateRuns(runs: RunRecord[]): AggregateStats {
   const defeats = count("defeat");
   const retreats = count("retreat");
 
-  const scores = valid.map((r) => r.score!.finalScore);
+  // A "completed" record missing its score is corrupt/legacy data: it still
+  // counts toward the win-rate denominator (status is authoritative), but it
+  // contributes no score observation rather than crashing or skewing to 0.
+  const scores = valid.flatMap((r) =>
+    typeof r.score?.finalScore === "number" && Number.isFinite(r.score.finalScore)
+      ? [r.score.finalScore] : []);
   const scoreSummary = summarize(scores);
 
-  const avgTurns = valid.length > 0
-    ? Math.round(valid.reduce((a, r) => a + (r.totalTurns ?? 0), 0) / valid.length)
-    : 0;
-  const avgRoomsCleared = valid.length > 0
-    ? Math.round(valid.reduce((a, r) => a + (r.roomsCleared ?? 0), 0) / valid.length)
-    : 0;
-  const avgHeroesAlive = valid.length > 0
-    ? parseFloat((valid.reduce((a, r) => a + (r.heroesAlive ?? 0), 0) / valid.length).toFixed(1))
-    : 0;
+  const avgOver = (pick: (r: RunRecord) => number | undefined, digits = 0): number => {
+    const vals = valid.map(pick).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!vals.length) return 0;
+    return parseFloat((vals.reduce((a, v) => a + v, 0) / vals.length).toFixed(digits));
+  };
+  const avgTurns = avgOver((r) => r.totalTurns);
+  const avgRoomsCleared = avgOver((r) => r.roomsCleared);
+  const avgHeroesAlive = avgOver((r) => r.heroesAlive, 1);
 
   const scoreDistribution = SCORE_BUCKETS.map((b) => ({
     range: b.range,
@@ -146,7 +152,7 @@ export function aggregateRuns(runs: RunRecord[]): AggregateStats {
     invalidRuns: byStatus("invalid"),
     cancelledRuns: byStatus("cancelled"),
     interruptedRuns: byStatus("interrupted"),
-    victoryRate: valid.length > 0 ? Math.round((victories / valid.length) * 100) : 0,
+    victoryRate: valid.length > 0 ? Math.round((victories / valid.length) * 100) : undefined,
     victoryRateCI: wilsonInterval(victories, valid.length),
     evidenceTier: evidenceTier(valid.length),
     avgScore: scoreSummary ? Math.round(scoreSummary.mean) : 0,
@@ -160,6 +166,103 @@ export function aggregateRuns(runs: RunRecord[]): AggregateStats {
     scoreDistribution,
     outcomeByDifficulty: {},
   };
+}
+
+// ─── Online aggregation (Stage 4 — streaming metrics over bounded memory) ────
+
+/**
+ * Incremental aggregate that consumes run records one at a time with O(1)
+ * memory (plus bounded per-combo groups). Welford's algorithm for score
+ * mean/variance — numerically stable for large n.
+ *
+ * Reconciliation: counts must equal the committed record set — checkable
+ * against receipt counts from the store.
+ */
+export class OnlineAggregator {
+  total = 0;
+  valid = 0;
+  victories = 0;
+  defeats = 0;
+  retreats = 0;
+  errors = 0;
+  timeouts = 0;
+  invalids = 0;
+  cancelled = 0;
+  interrupted = 0;
+  /** Welford state for score. */
+  private scoreN = 0;
+  private scoreMean = 0;
+  private scoreM2 = 0;
+  private scoreMin = Infinity;
+  private scoreMax = -Infinity;
+  /** Per-combo outcome counts (bounded by combo count). */
+  private combos = new Map<string, { valid: number; victories: number; scoreSum: number }>();
+  /** Per-class hero appearances/survival (bounded: 4 classes). */
+  private classes = new Map<string, { heroAppearances: number; heroSurvivals: number; damageDealt: number; damageReceived: number }>();
+
+  push(r: RunRecord): void {
+    this.total++;
+    switch (r.status) {
+      case "completed": {
+        this.valid++;
+        if (r.outcome === "victory") this.victories++;
+        else if (r.outcome === "defeat") this.defeats++;
+        else if (r.outcome === "retreat") this.retreats++;
+        const score = r.score?.finalScore;
+        if (typeof score === "number" && Number.isFinite(score)) {
+          this.scoreN++;
+          const delta = score - this.scoreMean;
+          this.scoreMean += delta / this.scoreN;
+          this.scoreM2 += delta * (score - this.scoreMean);
+          if (score < this.scoreMin) this.scoreMin = score;
+          if (score > this.scoreMax) this.scoreMax = score;
+        }
+        break;
+      }
+      case "error": this.errors++; break;
+      case "timeout": this.timeouts++; break;
+      case "invalid": this.invalids++; break;
+      case "cancelled": this.cancelled++; break;
+      case "interrupted": this.interrupted++; break;
+    }
+    if (r.comboId) {
+      const c = this.combos.get(r.comboId) ?? { valid: 0, victories: 0, scoreSum: 0 };
+      if (r.status === "completed") {
+        c.valid++;
+        if (r.outcome === "victory") c.victories++;
+        c.scoreSum += r.score?.finalScore ?? 0;
+      }
+      this.combos.set(r.comboId, c);
+    }
+    if (r.heroes) {
+      for (const h of r.heroes) {
+        const c = this.classes.get(h.className) ?? { heroAppearances: 0, heroSurvivals: 0, damageDealt: 0, damageReceived: 0 };
+        c.heroAppearances++;
+        if (h.alive) c.heroSurvivals++;
+        c.damageDealt += h.damageDealt;
+        c.damageReceived += h.damageReceived;
+        this.classes.set(h.className, c);
+      }
+    }
+  }
+
+  get scoreStats(): { n: number; mean: number; variance: number; min: number; max: number } {
+    return {
+      n: this.scoreN,
+      mean: this.scoreMean,
+      variance: this.scoreN > 1 ? this.scoreM2 / (this.scoreN - 1) : 0,
+      min: this.scoreN ? this.scoreMin : 0,
+      max: this.scoreN ? this.scoreMax : 0,
+    };
+  }
+
+  get comboStats(): ReadonlyMap<string, { valid: number; victories: number; scoreSum: number }> {
+    return this.combos;
+  }
+
+  get classStats(): ReadonlyMap<string, { heroAppearances: number; heroSurvivals: number; damageDealt: number; damageReceived: number }> {
+    return this.classes;
+  }
 }
 
 // ─── Paired comparison (shared-cohort experiments) ──────────────────────────

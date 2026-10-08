@@ -1,5 +1,5 @@
 /**
- * Stage 3 — structured telemetry extraction.
+ * Stage 3/4 — structured telemetry extraction.
  *
  * All records are DERIVED from authoritative engine state at the run
  * boundary — no ad hoc instrumentation inside gameplay code, and no
@@ -10,28 +10,33 @@
  *     (includes pet damage — pets are attributed to their owner hero).
  *     Counts applied damage after mitigation; overkill IS included.
  *   - damageReceived: DAMAGE_APPLIED totals where the hero is a targetId.
- *   - healingReceived: HEAL_APPLIED amounts targeting the hero — the
- *     pre-clamp requested amount (see event details.amount).
+ *   - healingReceived: EFFECTIVE healing restored (post-clamp HP delta,
+ *     including revive restoration and rest-room heals). Pre-Stage-4
+ *     records accumulated the pre-clamp requested amount — treat legacy
+ *     values as approximate.
  *   - itemsUsed: consumptions counted at useItem() (stats.itemsUsedByHero).
- *   - deaths: HERO_DIED events targeting the hero (revivals don't erase them).
- *   - A combat "retreat" (e.g. Smoke Bomb) is recorded as result "retreat"
- *   and is NOT an encounter victory.
- *   - Encounters are reconstructed from the bounded event log; if the log
- *     was pruned, early encounters are absent and completeness is "partial".
+ *   - deaths: cumulative per-hero deaths from stats.deathsByHero — survives
+ *     bounded-log pruning. For legacy states lacking the accumulator, falls
+ *     back to counting retained HERO_DIED events (may undercount).
+ *   - Encounter outcomes are only populated from an observed COMBAT_ENDED.
+ *     Unclosed spans are "in-progress"/"unknown" — never fabricated as
+ *     retreat or victory.
+ *   - Encounters are reconstructed from the retained event span; if the
+ *     log was pruned, early encounters are absent and completeness is
+ *     "partial".
  */
 import type { GameState } from "../types/gameState";
 import type { GameEvent } from "../types/events";
-import type { HeroRunRecord, EncounterRecord, TelemetryCompleteness } from "../types/experiment";
+import type { HeroRunRecord, EncounterRecord, EncounterOutcome, TelemetryCompleteness } from "../types/experiment";
 import type { Suit } from "../types/cards";
 import type { PartySetupChoice } from "./gameState";
 
 export const EVENT_LOG_CAPACITY = 500;
+export const TELEMETRY_SCHEMA_VERSION = 2;
 
 /** True when the bounded event log shows evidence of pruning. */
 export function logWasTruncated(state: GameState): boolean {
   if (state.log.length < EVENT_LOG_CAPACITY) return false;
-  // The retained window starts after the pinned setup events; a pruned log
-  // has a sequence gap between the pinned head and the first general event.
   const seqs = state.log.map((e) => e.sequence);
   for (let i = 1; i < seqs.length; i++) {
     if (seqs[i] > seqs[i - 1] + 1) return true;
@@ -48,7 +53,10 @@ export function buildHeroRecords(
   const dmgReceived = state.stats.damageReceivedByHero ?? {};
   const healByHero = state.stats.healingByHero ?? {};
   const itemsByHero = state.stats.itemsUsedByHero ?? {};
-  const deathsByHero = countEventsByTarget(state.log, "HERO_DIED");
+  // Prefer the authoritative cumulative accumulator (survives pruning).
+  // Fall back to retained-log counting only for pre-Stage-4 states, where
+  // the count may be partial — the run-level completeness flag discloses.
+  const deathsByHero = state.stats.deathsByHero ?? countEventsByTargetRecord(state.log, "HERO_DIED");
 
   return state.party.heroes.map((h) => {
     const setup = partyChoices.find((c) => `hero_${c.position}` === h.id);
@@ -65,26 +73,37 @@ export function buildHeroRecords(
       damageReceived: dmgReceived[h.id] ?? 0,
       healingReceived: healByHero[h.id] ?? 0,
       itemsUsed: itemsByHero[h.id] ?? 0,
-      deaths: deathsByHero.get(h.id) ?? 0,
+      deaths: deathsByHero[h.id] ?? 0,
     };
   });
 }
 
-function countEventsByTarget(log: GameEvent[], type: GameEvent["type"]): Map<string, number> {
-  const m = new Map<string, number>();
+function countEventsByTargetRecord(log: GameEvent[], type: GameEvent["type"]): Record<string, number> {
+  const m: Record<string, number> = {};
   for (const e of log) {
     if (e.type !== type) continue;
-    for (const t of e.targetIds ?? []) m.set(t, (m.get(t) ?? 0) + 1);
+    for (const t of e.targetIds ?? []) m[t] = (m[t] ?? 0) + 1;
   }
   return m;
 }
 
 /**
  * Reconstruct encounter records by pairing COMBAT_STARTED with the next
- * COMBAT_ENDED in the retained log. Bounded-log pruning is surfaced via
- * `complete: false` on spans that start before the retained window.
+ * COMBAT_ENDED in the retained log.
+ *
+ * Honesty contract:
+ *   - `closed: true` + a result → a COMBAT_ENDED with that result was seen.
+ *   - `closed: true` + "unknown" → COMBAT_ENDED seen, result value missing.
+ *   - `closed: false` + "in-progress" → span still open when the run's
+ *     evidence ended (mid-combat termination).
+ *   - `closed: false` + "unknown" → span superseded without an observed end
+ *     (a later COMBAT_STARTED appeared) — boundary not reconstructible.
+ * No fallback fabricates victory or retreat.
  */
-export function buildEncounterRecords(state: GameState): {
+export function buildEncounterRecords(
+  state: GameState,
+  opts: { terminatedMidCombat?: boolean } = {}
+): {
   encounters: EncounterRecord[];
   completeness: TelemetryCompleteness;
 } {
@@ -105,7 +124,7 @@ export function buildEncounterRecords(state: GameState): {
 
   const heroIds = new Set(state.party.heroes.map((h) => h.id));
 
-  const flush = (result: EncounterRecord["result"]) => {
+  const flush = (result: EncounterOutcome, closed: boolean) => {
     if (!open) return;
     encounters.push({
       index: encounters.length,
@@ -114,17 +133,18 @@ export function buildEncounterRecords(state: GameState): {
       isMiniBoss: open.isMiniBoss,
       isFinalBoss: open.isFinalBoss,
       result,
+      closed,
       rounds: open.rounds,
       damageDealtByHeroes: open.damageDealtByHeroes,
       heroDeaths: open.heroDeaths,
-      complete: open.complete,
+      complete: open.complete && closed,
     });
     open = null;
   };
 
   for (const e of log) {
     if (e.type === "COMBAT_STARTED") {
-      flush("retreat"); // defensive: unclosed prior combat
+      flush("unknown", false); // superseded without observed end
       const d = e.details ?? {};
       open = {
         monsterName: typeof d.monsterName === "string" ? d.monsterName : "Unknown",
@@ -147,10 +167,14 @@ export function buildEncounterRecords(state: GameState): {
       open.heroDeaths += (e.targetIds ?? []).filter((t) => heroIds.has(t)).length || 1;
     } else if (e.type === "COMBAT_ENDED") {
       const r = e.details?.result;
-      flush(r === "victory" || r === "defeat" || r === "retreat" ? r : "victory");
+      const outcome: EncounterOutcome =
+        r === "victory" || r === "defeat" || r === "retreat" ? r : "unknown";
+      flush(outcome, true);
     }
   }
-  flush("retreat"); // unclosed combat (e.g. run terminated mid-combat)
+  // Unclosed span at end of evidence: mid-combat termination vs lost
+  // boundary — distinguished by the run's terminal state.
+  flush(opts.terminatedMidCombat ? "in-progress" : "unknown", false);
 
   return {
     encounters,

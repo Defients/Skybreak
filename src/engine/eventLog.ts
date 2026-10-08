@@ -34,6 +34,20 @@ export function createEvent(
 
 const MAX_LOG_ENTRIES = 500;
 
+// ─── Deep-trace sink (Stage 4) ───────────────────────────────────────────────
+
+/**
+ * Optional per-run trace observer. Invoked for every event BEFORE the
+ * bounded display log prunes, so a deep-telemetry run can retain evidence
+ * the 500-event log cannot. Module-level (worker runs are single-threaded);
+ * the executor sets it at run start and clears it at run end.
+ */
+let traceObserver: ((e: GameEvent) => void) | null = null;
+
+export function setTraceObserver(fn: ((e: GameEvent) => void) | null): void {
+  traceObserver = fn;
+}
+
 export function addEvent(state: GameState, event: GameEvent): GameState {
   let stats = state.stats;
   if (event.type === "DAMAGE_APPLIED" && typeof event.details?.damage === "number" && event.details.damage > 0 && event.actorId) {
@@ -68,18 +82,53 @@ export function addEvent(state: GameState, event: GameEvent): GameState {
       stats = { ...stats, damageReceivedByHero: received };
     }
   }
-  if (event.type === "HEAL_APPLIED" && typeof event.details?.amount === "number" && event.details.amount > 0) {
+  if (event.type === "HEAL_APPLIED") {
+    // EFFECTIVE healing only: prefer per-target `amounts` map, then
+    // `effectiveAmount` (post-clamp HP delta), falling back to `amount`
+    // only for legacy events that recorded the requested value.
+    const d = event.details ?? {};
     const targets = event.targetIds ?? [];
-    if (targets.some(t => state.party.heroes.some(h => h.id === t))) {
-      const healing = { ...stats.healingByHero };
-      for (const t of targets) {
-        if (state.party.heroes.some(h => h.id === t)) {
-          healing[t] = (healing[t] ?? 0) + (event.details.amount as number);
+    const healing = { ...stats.healingByHero };
+    let changed = false;
+    if (d.amounts && typeof d.amounts === "object") {
+      for (const [t, amt] of Object.entries(d.amounts as Record<string, unknown>)) {
+        if (typeof amt === "number" && amt > 0 && state.party.heroes.some(h => h.id === t)) {
+          healing[t] = (healing[t] ?? 0) + amt;
+          changed = true;
         }
       }
-      stats = { ...stats, healingByHero: healing };
+    } else {
+      const eff = typeof d.effectiveAmount === "number" ? d.effectiveAmount
+        : typeof d.amount === "number" ? d.amount : 0;
+      if (eff > 0) {
+        for (const t of targets) {
+          if (state.party.heroes.some(h => h.id === t)) {
+            healing[t] = (healing[t] ?? 0) + eff;
+            changed = true;
+          }
+        }
+      }
     }
+    if (changed) stats = { ...stats, healingByHero: healing };
   }
+  if (event.type === "HERO_DIED") {
+    // Cumulative per-hero death count — survives bounded-log pruning.
+    const targets = event.targetIds ?? [];
+    const deathsByHero = { ...stats.deathsByHero };
+    let changed = false;
+    for (const t of targets) {
+      if (state.party.heroes.some(h => h.id === t)) {
+        deathsByHero[t] = (deathsByHero[t] ?? 0) + 1;
+        changed = true;
+      }
+    }
+    if (changed) stats = { ...stats, deathsByHero };
+  }
+
+  // Optional deep-trace sink: observes the event BEFORE bounded-log
+  // pruning. Set per-run by the simulation executor; never present in
+  // interactive play. Sinks must not consume RNG or mutate state.
+  traceObserver?.(event);
 
   let log = [...state.log, event];
   if (log.length > MAX_LOG_ENTRIES) {

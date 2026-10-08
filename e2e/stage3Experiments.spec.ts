@@ -69,7 +69,7 @@ test("experiment history persists across reload and reopens results", async ({ p
 
   // IndexedDB holds the experiment records (durable storage)
   const persisted = await page.evaluate(async () => {
-    const req = indexedDB.open("skybreak-experiments", 1);
+    const req = indexedDB.open("skybreak-experiments"); // opens current schema version
     const db = await new Promise<IDBDatabase>((res, rej) => {
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
@@ -94,8 +94,9 @@ test("experiment history persists across reload and reopens results", async ({ p
   await page.getByRole("button", { name: /Batch Simulation/i }).click();
   await expect(page.getByText("Experiment History")).toBeVisible();
   await shot(page, "stage3-06-history");
+  // The open-experiment button carries the experiment id as its title.
   await page.locator(".glass-card", { hasText: "Experiment History" })
-    .locator("button").first().click();
+    .locator('button[title^="exp_"]').first().click();
   await expect(page.getByRole("heading", { name: "Batch Results" })).toBeVisible();
   await shot(page, "stage3-07-recovered-results");
 });

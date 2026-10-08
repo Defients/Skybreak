@@ -11,6 +11,7 @@
  * what ran before in the same thread/worker.
  */
 import type { GameState } from "../types/gameState";
+import type { GameEvent } from "../types/events";
 import type { Suit } from "../types/cards";
 import type {
   RunTask,
@@ -49,9 +50,9 @@ import {
   leaveMerchant,
 } from "./merchantEngine";
 import { resolveRestChoice, calculateScore, finalizeRunStats, resolveCombatRoom } from "./progressionEngine";
-import { emitEvent, resetEventSequence } from "./eventLog";
+import { emitEvent, resetEventSequence, setTraceObserver } from "./eventLog";
 import { ALL_CLASSES, getSpecialization } from "../data/classes";
-import { buildHeroRecords, buildEncounterRecords } from "./telemetry";
+import { buildHeroRecords, buildEncounterRecords, TELEMETRY_SCHEMA_VERSION } from "./telemetry";
 import { ENGINE_FINGERPRINT } from "./experimentSpec";
 
 export { getItemUsageThreshold } from "./simPolicies";
@@ -73,6 +74,8 @@ interface RunCtx {
   /** Per-run defeated-by tracking — replaces the old module-global. */
   defeatedByMonster?: string;
   combatLimitHit: boolean;
+  /** Times the stuck-AI loop breaker forced a hero turn completion. */
+  noProgressBreaks: number;
 }
 
 export interface ExecuteRunOptions {
@@ -191,7 +194,10 @@ async function autoPlayCombat(
           id => !newState.combat!.completedHeroTurns.includes(id) &&
             getHeroById(newState, id)?.alive
         );
-        if (nextHeroId) newState = completeHeroTurn(newState, nextHeroId);
+        if (nextHeroId) {
+          newState = completeHeroTurn(newState, nextHeroId);
+          ctx.noProgressBreaks++;
+        }
         else return newState; // no completable hero — give up
         noProgressCount = 0;
       }
@@ -439,6 +445,7 @@ function diagnosticsFor(state: GameState | undefined, ctx: RunCtx): RunDiagnosti
     roomType: state?.spire.currentRoom?.type,
     roomIterations: ctx.roomIterations,
     combatIterations: ctx.combatIterations,
+    noProgressBreaks: ctx.noProgressBreaks,
     retrySafe: false,
   };
 }
@@ -464,12 +471,30 @@ export async function executeRun(
     roomIterations: 0,
     combatIterations: 0,
     combatLimitHit: false,
+    noProgressBreaks: 0,
     maxRooms: task.limits?.maxRooms ?? DEFAULT_MAX_ROOMS,
     maxCombatIterations: task.limits?.maxCombatIterations ?? DEFAULT_MAX_COMBAT_ITERATIONS,
   };
 
   let state: GameState | undefined;
   let partyChoices: PartySetupChoice[] = [];
+
+  // Deep trace capture: observes every event BEFORE bounded-log pruning.
+  // Bounded retention — never an unbounded in-memory trace. `emitted`
+  // counts every event even when retention is capped, so the record can
+  // state exactly what was captured vs produced.
+  const TRACE_RETENTION_CAP = 8000;
+  const traceEvents: GameEvent[] | null =
+    task.telemetryLevel === "deep" ? [] : null;
+  let traceEmitted = 0;
+  let traceTruncated = false;
+  if (traceEvents) {
+    setTraceObserver((e) => {
+      traceEmitted++;
+      if (traceEvents.length < TRACE_RETENTION_CAP) traceEvents.push(e);
+      else traceTruncated = true;
+    });
+  }
 
   try {
     // ── Setup phase: invalid inputs become "invalid", not "error" ──
@@ -571,7 +596,8 @@ export async function executeRun(
       rec.diagnostics = d;
       rec.runSummary = `Run ${task.runIndex + 1} [${task.seed}]: TIMEOUT (${d.errorCategory}) at room ${d.roomIndex + 1}`;
       rec.durationMs = Date.now() - startedAt;
-      attachTelemetry(rec, state, partyChoices, task.telemetryLevel);
+      attachTelemetry(rec, state, partyChoices, task.telemetryLevel,
+        traceEvents ? { events: traceEvents, emitted: traceEmitted, truncated: traceTruncated } : undefined);
       return rec;
     }
 
@@ -591,7 +617,8 @@ export async function executeRun(
     rec.roomsCleared = finalState.stats.roomsCleared;
     rec.runSummary = `Run ${task.runIndex + 1} [${task.seed}]: ${outcome.toUpperCase()} — Score: ${score.finalScore}, Turns: ${finalState.stats.totalTurns}, Rooms: ${finalState.stats.roomsCleared}, Heroes Alive: ${livingHeroes.length}`;
     rec.durationMs = Date.now() - startedAt;
-    attachTelemetry(rec, finalState, partyChoices, task.telemetryLevel);
+    attachTelemetry(rec, finalState, partyChoices, task.telemetryLevel,
+      traceEvents ? { events: traceEvents, emitted: traceEmitted, truncated: traceTruncated } : undefined);
     return rec;
   } catch (err) {
     const rec = baseRecord(task, "error", []);
@@ -603,6 +630,10 @@ export async function executeRun(
     rec.runSummary = `Run ${task.runIndex + 1} [${task.seed}]: ERROR — ${d.errorMessage}`;
     rec.durationMs = Date.now() - startedAt;
     return rec;
+  } finally {
+    // The trace observer is module-global — always release it so a
+    // subsequent run (or game) never writes into this run's buffer.
+    if (traceEvents) setTraceObserver(null);
   }
 }
 
@@ -610,9 +641,11 @@ function attachTelemetry(
   rec: RunRecord,
   state: GameState,
   partyChoices: PartySetupChoice[],
-  level: RunTask["telemetryLevel"]
+  level: RunTask["telemetryLevel"],
+  trace?: { events: GameEvent[]; emitted: number; truncated: boolean }
 ): void {
   let completeness: TelemetryCompleteness = rec.status === "completed" ? "complete" : "partial";
+  rec.telemetryVersion = TELEMETRY_SCHEMA_VERSION;
 
   if (level === "minimal") {
     rec.telemetryCompleteness = rec.status === "completed" ? "summary-only" : completeness;
@@ -620,17 +653,31 @@ function attachTelemetry(
   }
 
   rec.heroes = buildHeroRecords(state, partyChoices);
-  const enc = buildEncounterRecords(state);
+  // terminatedMidCombat: an unresolved combat still active at capture.
+  const terminatedMidCombat =
+    rec.status !== "completed" && state.combat != null && !state.combat.combatResult;
+  const enc = buildEncounterRecords(state, { terminatedMidCombat });
   rec.encounters = enc.encounters;
-  rec.combatLog = state.log;
   if (enc.completeness === "partial") completeness = "partial";
 
-  if (level === "deep") {
+  if (level === "deep" && trace) {
+    // Deep trace: events captured before display-log pruning, bounded by
+    // the retention cap. traceStats states exactly what was produced vs
+    // retained — a truncated trace never wears a "complete" badge.
+    rec.combatLog = trace.events;
+    rec.traceStats = {
+      emitted: trace.emitted,
+      retained: trace.events.length,
+      truncated: trace.truncated,
+    };
+    if (trace.truncated) completeness = "partial";
     const rngData = state.rng;
     rec.rngHistorySummary = {
       totalSteps: rngData?.step ?? 0,
       retainedEvents: rngData?.history?.length ?? 0,
     };
+  } else {
+    rec.combatLog = state.log;
   }
 
   rec.telemetryCompleteness = completeness;

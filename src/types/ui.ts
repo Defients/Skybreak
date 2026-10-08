@@ -67,8 +67,13 @@ export interface RunStats {
   damageByMonster?: Record<string, number>;
   /** Stage 3 telemetry: applied damage received per hero id. */
   damageReceivedByHero?: Record<string, number>;
-  /** Stage 3 telemetry: healing applied per hero id (requested amount). */
+  /** Stage 4 telemetry: EFFECTIVE healing restored per hero id (post-clamp
+   *  HP delta; includes revive restoration). Older records accumulated the
+   *  pre-clamp requested amount — treat legacy values as approximate. */
   healingByHero?: Record<string, number>;
   /** Stage 3 telemetry: item uses per hero id. */
   itemsUsedByHero?: Record<string, number>;
+  /** Stage 4 telemetry: cumulative deaths per hero id. Survives bounded-log
+   *  pruning; absent in pre-Stage-4 stats (fall back to log counting). */
+  deathsByHero?: Record<string, number>;
 }

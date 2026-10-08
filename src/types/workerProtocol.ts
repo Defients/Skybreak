@@ -27,6 +27,8 @@ export interface ExperimentProgress {
   total: number;
   /** Records durably persisted (subset of completed). */
   persisted: number;
+  /** Records buffered awaiting a durable commit. */
+  pendingWrites?: number;
   /** Valid (completed-status) gameplay results so far. */
   validRuns: number;
   victories: number;

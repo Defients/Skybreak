@@ -71,12 +71,20 @@ export interface AggregateStats {
   invalidRuns: number;
   cancelledRuns: number;
   interruptedRuns: number;
-  /** victories / validRuns * 100 (0 when no valid runs). */
-  victoryRate: number;
+  /** victories / validRuns * 100. `undefined` when there are no valid
+   *  observations — "no data" is NOT 0%. */
+  victoryRate?: number;
   /** Wilson score interval for the win rate (fraction, 0..1). */
   victoryRateCI?: WinRateCI;
-  /** Evidence tier label driven by valid sample size. */
-  evidenceTier: "insufficient" | "exploratory" | "replicated";
+  /**
+   * Evidence tier driven by valid sample size only.
+   *   insufficient → too few runs for any conclusion
+   *   exploratory  → preliminary indication only
+   *   estimated    → estimate with stated uncertainty (NOT replication)
+   *   replicated   → an independent experiment reproduced the result
+   *                  (never assigned from sample size alone)
+   */
+  evidenceTier: "insufficient" | "exploratory" | "estimated" | "replicated";
   avgScore: number;
   medianScore?: number;
   scoreStdDev?: number;

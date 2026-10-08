@@ -69,8 +69,12 @@ export type ExperimentStatus =
   | "cancelled"
   | "interrupted"
   | "completed"
+  /** Every task was attempted, but ≥1 ended in a technical failure. */
+  | "completed-with-errors"
   | "failed"
-  | "incompatible";
+  | "incompatible"
+  /** Imported from an evidence package — read-only historical data. */
+  | "imported";
 
 export interface RunDiagnostics {
   /** Game phase when the run ended or was terminated. */
@@ -82,6 +86,8 @@ export interface RunDiagnostics {
   roomIterations: number;
   /** Combat steps executed in the last combat (0 if none). */
   combatIterations: number;
+  /** Times the stuck-AI loop breaker forced a hero turn completion. */
+  noProgressBreaks?: number;
   /** Machine-readable failure category for non-completed runs. */
   errorCategory?:
     | "room-limit"
@@ -124,6 +130,14 @@ export interface HeroRunRecord {
   deaths: number;
 }
 
+/**
+ * Honest encounter outcome model. `closed` says whether a COMBAT_ENDED was
+ * observed; `result` is only populated from an actual COMBAT_ENDED result.
+ * Unclosed encounters are "in-progress" (run ended mid-combat) or "unknown"
+ * (span truncated) — never fabricated as retreat or victory.
+ */
+export type EncounterOutcome = "victory" | "defeat" | "retreat" | "unknown" | "in-progress";
+
 export interface EncounterRecord {
   /** Sequence index of the encounter within the run. */
   index: number;
@@ -131,8 +145,14 @@ export interface EncounterRecord {
   isElite: boolean;
   isMiniBoss: boolean;
   isFinalBoss: boolean;
-  /** "victory" | "defeat" | "retreat" — the COMBAT_ENDED result. */
-  result: GameplayOutcome;
+  /**
+   * Observed COMBAT_ENDED result. "unknown" = closing event observed but
+   * the result value was missing/unrecognized. "in-progress" = no closing
+   * event observed. Never invent "retreat" or "victory" for missing data.
+   */
+  result: EncounterOutcome;
+  /** True when a COMBAT_ENDED event terminated this span in the evidence. */
+  closed: boolean;
   /** Rounds elapsed in this encounter (TURN_STARTED events in the span). */
   rounds: number;
   /** Hero damage dealt during this encounter. */
@@ -182,10 +202,20 @@ export interface RunRecord {
   heroes?: HeroRunRecord[];
   /** Standard+ telemetry: per-encounter records. */
   encounters?: EncounterRecord[];
-  /** Deep telemetry (or standard, bounded): the retained event log.
-   *  Never claim completeness — check telemetryCompleteness. */
+  /** Retained events — for deep telemetry, the trace-sink capture; for
+   *  standard, the bounded display log. Never claim completeness —
+   *  check telemetryCompleteness and traceStats. */
   combatLog?: GameEvent[];
+  /**
+   * Deep-trace accounting. `emitted` = total events the run produced,
+   * `retained` = events actually committed in this record,
+   * `truncated` = capture cap was reached. Present for deep level.
+   */
+  traceStats?: { emitted: number; retained: number; truncated: boolean };
+  /** RNG bookkeeping — counts only; never claims every roll is retained. */
   rngHistorySummary?: { totalSteps: number; retainedEvents: number };
+  /** Telemetry schema version this record was produced under. */
+  telemetryVersion?: number;
 
   runSummary: string;
   diagnostics?: RunDiagnostics;

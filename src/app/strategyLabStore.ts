@@ -16,7 +16,7 @@ import {
   downloadLabCSV,
 } from "../engine/strategyLabEngine";
 import {
-  expandLabTasks,
+  labTaskSource,
   configFingerprint,
   newExperimentId,
   comboToId,
@@ -24,14 +24,14 @@ import {
 import { aggregateRuns, summarize } from "../engine/statistics";
 import {
   startExperiment,
-  getResumableRunIds,
+  planResume,
   type ExecutionHandle,
 } from "./experimentRunner";
 import {
   getExperimentStore,
   type StoredExperiment,
 } from "../persistence/experimentDb";
-import { buildEvidencePackage, downloadJson, runsToCsv } from "../engine/evidenceExport";
+import { buildEvidencePackage, downloadJson, runsToCsv, validateEvidencePackage, importEvidencePackage, packageSizeOk } from "../engine/evidenceExport";
 import { generateSeed } from "../utils/ids";
 
 interface StrategyLabStore {
@@ -64,9 +64,14 @@ interface StrategyLabStore {
   doDownloadJSON: () => void;
   doDownloadCSV: () => void;
   exportEvidence: () => Promise<void>;
+  /** Import a skybreak-evidence JSON package as a read-only experiment. */
+  importEvidenceFile: (file: File) => Promise<void>;
 }
 
 let currentHandle: ExecutionHandle | null = null;
+/** Incremented on every start — stale async callbacks from a previous
+ *  session must not overwrite a newer experiment's UI state. */
+let sessionToken = 0;
 
 function buildLabResult(
   config: StrategyLabConfig,
@@ -106,12 +111,13 @@ function buildLabResult(
   let lowestStdDev = Infinity;
   for (let i = 0; i < comboResults.length; i++) {
     const cr = comboResults[i];
-    if (cr.aggregate.victoryRate > bestWinRate) {
-      bestWinRate = cr.aggregate.victoryRate;
+    const wr = cr.aggregate.victoryRate;
+    if (wr !== undefined && wr > bestWinRate) {
+      bestWinRate = wr;
       bestComboIndex = i;
     }
-    if (cr.aggregate.victoryRate < worstWinRate) {
-      worstWinRate = cr.aggregate.victoryRate;
+    if (wr !== undefined && wr < worstWinRate) {
+      worstWinRate = wr;
       worstComboIndex = i;
     }
     if (cr.scoreStdDev < lowestStdDev) {
@@ -175,19 +181,17 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
     const config = get().config;
     const experimentId = resumeId ?? newExperimentId("lab");
     const combos = generateCrossProduct(config.axes);
-    const tasks = expandLabTasks(config, combos, experimentId);
+    const tasks = labTaskSource(config, combos, experimentId);
     const fp = configFingerprint({ ...config, name: undefined });
+    const session = ++sessionToken;
 
-    let skipRunIds: Set<string> | undefined;
-    let priorSummary;
+    let resumePlan;
     if (resumeId) {
-      const resumable = await getResumableRunIds(resumeId);
-      if (!resumable) {
+      resumePlan = (await planResume(resumeId)) ?? undefined;
+      if (!resumePlan) {
         set({ isRunning: false, storageWarning: "Experiment is not resumable." });
         return;
       }
-      skipRunIds = resumable.runIds;
-      priorSummary = resumable.priorSummary;
     }
 
     set({
@@ -197,7 +201,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
       experimentStatus: "running",
       result: null,
       progress: null,
-      progressCounts: { completed: skipRunIds?.size ?? 0, total: tasks.length, persisted: skipRunIds?.size ?? 0 },
+      progressCounts: { completed: resumePlan?.reusable.size ?? 0, total: tasks.total, persisted: resumePlan?.committedCount ?? 0 },
       currentRunLog: [],
       currentRunSummary: "",
       cancelRequested: false,
@@ -212,9 +216,9 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
       configFingerprint: fp,
       tasks,
       resume: !!resumeId,
-      skipRunIds,
-      priorSummary,
+      resumePlan,
       onProgress: (p) => {
+        if (session !== sessionToken) return; // stale session callback
         const lastRun = p.lastRun;
         const comboIdx = lastRun?.comboIndex ?? 0;
         set({
@@ -231,13 +235,14 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
           throughput: p.throughput,
         });
       },
-      onStatus: (s) => set({ experimentStatus: s }),
-      onStorageError: (msg) => set({ storageWarning: msg }),
+      onStatus: (s) => { if (session === sessionToken) set({ experimentStatus: s }); },
+      onStorageError: (msg) => { if (session === sessionToken) set({ storageWarning: msg }); },
     });
     currentHandle = handle;
 
     const outcome = await handle.done;
     currentHandle = null;
+    if (session !== sessionToken) return; // superseded
 
     let allRuns = outcome.records;
     try {
@@ -256,7 +261,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
       result: buildLabResult(config, allRuns, new Date().toISOString(), new Date().toISOString()),
       experimentStatus: outcome.status,
       progress: null,
-      progressCounts: { completed: allRuns.length, total: tasks.length, persisted: outcome.persisted + (skipRunIds?.size ?? 0) },
+      progressCounts: { completed: allRuns.length, total: tasks.total, persisted: outcome.committedTotal },
       currentRunLog: [],
       currentRunSummary: "",
       storageWarning: outcome.stored ? get().storageWarning : "Durable storage unavailable — results are in memory only. Export before closing the tab.",
@@ -274,6 +279,12 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
   },
 
   resetLab: () => {
+    if (get().isRunning) {
+      // Never discard in-flight work silently — cancel first so committed
+      // progress is preserved and the experiment can be resumed later.
+      currentHandle?.cancel();
+    }
+    sessionToken++;
     set({
       result: null,
       isRunning: false,
@@ -302,6 +313,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
   },
 
   openExperiment: async (id) => {
+    if (get().isRunning) return; // don't clobber an active session's view
     const store = await getExperimentStore();
     const meta = await store.getExperiment(id);
     if (!meta || meta.kind !== "strategy-lab") return;
@@ -318,6 +330,7 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
   },
 
   resumeExperiment: async (id) => {
+    if (get().isRunning) return;
     const store = await getExperimentStore();
     const meta = await store.getExperiment(id);
     if (!meta || meta.kind !== "strategy-lab") return;
@@ -326,6 +339,11 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
   },
 
   deleteExperiment: async (id) => {
+    // Refuse to delete the experiment currently executing in this context.
+    if (get().isRunning && get().experimentId === id) {
+      set({ storageWarning: "Cannot delete an experiment while it is running." });
+      return;
+    }
     const store = await getExperimentStore();
     await store.deleteExperiment(id);
     await get().loadHistory();
@@ -357,5 +375,38 @@ export const useStrategyLabStore = create<StrategyLabStore>((set, get) => ({
     a.download = `evidence_${experimentId}_runs.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  importEvidenceFile: async (file) => {
+    const sizeCheck = packageSizeOk(file.size);
+    if (!sizeCheck.ok) {
+      set({ storageWarning: `Import rejected: ${sizeCheck.error}` });
+      return;
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      set({ storageWarning: "Import rejected: file is not valid JSON." });
+      return;
+    }
+    const v = validateEvidencePackage(raw);
+    if (!v.ok || !v.package) {
+      set({ storageWarning: `Import rejected: ${v.errors.slice(0, 3).join("; ")}` });
+      return;
+    }
+    const store = await getExperimentStore();
+    const res = await importEvidencePackage(store, v.package, v.warnings);
+    if (res.ok) {
+      set({
+        storageWarning: res.warnings.length
+          ? `Imported ${res.imported} run(s) with warnings: ${res.warnings.slice(0, 2).join("; ")}`
+          : `Imported ${res.imported} run(s) as read-only evidence.`,
+      });
+      await get().loadHistory();
+      if (res.experimentId) await get().openExperiment(res.experimentId);
+    } else {
+      set({ storageWarning: res.errors.slice(0, 3).join("; ") });
+    }
   },
 }));

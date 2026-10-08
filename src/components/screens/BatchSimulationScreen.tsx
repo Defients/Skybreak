@@ -769,13 +769,14 @@ export function BatchSimulationScreen({ onBack }: Props) {
         </button>
       </div>
 
-      {/* Experiment History */}
-      {historyLoaded && history.length > 0 && (
+      {/* Experiment History + evidence import */}
+      {historyLoaded && (
         <ExperimentHistoryPanel
           experiments={history}
           onOpen={(id) => { playSfx("ui", "button_click"); void openExperiment(id); }}
           onResume={(id) => { playSfx("ui", "button_click"); void resumeExperiment(id); }}
           onDelete={(id) => { void deleteExperiment(id); }}
+          onImportFile={(f) => { void useBatchStore.getState().importEvidenceFile(f); }}
         />
       )}
     </div>
@@ -1271,6 +1272,14 @@ function ResultsView({
     return runs;
   }, [result.runs, sortKey, sortDir]);
 
+  // Large-result safety: paginate the table rather than rendering thousands
+  // of rows at once.
+  const PAGE_SIZE = 100;
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(sortedRuns.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const pagedRuns = sortedRuns.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
+
   const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   return (
@@ -1316,11 +1325,11 @@ function ResultsView({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
           <StatBox
             label="Victory Rate"
-            value={`${stats.victoryRate}%`}
+            value={stats.victoryRate !== undefined ? `${stats.victoryRate}%` : "N/A"}
             sub={
               stats.victoryRateCI
                 ? `${stats.victories}W / ${stats.defeats}L · 95% CI [${(stats.victoryRateCI.low * 100).toFixed(0)}–${(stats.victoryRateCI.high * 100).toFixed(0)}%]`
-                : `${stats.victories}W / ${stats.defeats}L`
+                : stats.validRuns === 0 ? "no valid observations" : `${stats.victories}W / ${stats.defeats}L`
             }
           />
           <StatBox label="Avg Score" value={stats.avgScore} sub={stats.scoreStdDev !== undefined ? `σ ${stats.scoreStdDev} · Max ${stats.maxScore}` : `Max: ${stats.maxScore}`} />
@@ -1388,7 +1397,7 @@ function ResultsView({
               </tr>
             </thead>
             <tbody>
-              {sortedRuns.map((run) => (
+              {pagedRuns.map((run) => (
                 <tr
                   key={run.runIndex}
                   className="border-b border-spire-border/20 hover:bg-spire-accent/5 cursor-pointer transition-colors"
@@ -1428,6 +1437,15 @@ function ResultsView({
             </tbody>
           </table>
         </div>
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between mt-3 text-xs text-spire-muted">
+            <span>{sortedRuns.length} runs · page {clampedPage + 1} of {pageCount}</span>
+            <div className="flex gap-2">
+              <button className="px-2 py-1 rounded border border-spire-border/40 disabled:opacity-30" disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>← Prev</button>
+              <button className="px-2 py-1 rounded border border-spire-border/40 disabled:opacity-30" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>Next →</button>
+            </div>
+          </div>
+        )}
 
         {selectedRun !== null && (() => {
           const run = result.runs.find((r) => r.runIndex === selectedRun);
@@ -1447,6 +1465,19 @@ function ResultsView({
                   )}
                   {run.diagnostics?.errorMessage && (
                     <div className="col-span-2 sm:col-span-4"><span className="text-spire-muted/60">message:</span> <span className="text-red-300">{run.diagnostics.errorMessage}</span></div>
+                  )}
+                  {run.traceStats && (
+                    <div className="col-span-2"><span className="text-spire-muted/60">trace:</span>{" "}
+                      <span className={run.traceStats.truncated ? "text-amber-300" : "text-spire-white"}>
+                        {run.traceStats.retained}/{run.traceStats.emitted} events{run.traceStats.truncated ? " (truncated)" : ""}
+                      </span>
+                    </div>
+                  )}
+                  {run.telemetryCompleteness !== "complete" && (
+                    <div className="col-span-2"><span className="text-spire-muted/60">telemetry:</span> <span className="text-amber-300">{run.telemetryCompleteness}</span></div>
+                  )}
+                  {(run.diagnostics?.noProgressBreaks ?? 0) > 0 && (
+                    <div className="col-span-2"><span className="text-spire-muted/60">AI stalls:</span> <span className="text-amber-300">{run.diagnostics!.noProgressBreaks} forced turn completions</span></div>
                   )}
                   {run.heroes && run.heroes.length > 0 && (
                     <div className="col-span-2 sm:col-span-4">
@@ -1504,10 +1535,15 @@ function EvidenceTierBadge({ tier, validRuns }: { tier: string; validRuns: numbe
       cls: "text-amber-300 border-amber-300/40 bg-amber-300/10",
       hint: "Indicative only — directional signal, wide uncertainty.",
     },
+    estimated: {
+      label: "estimated",
+      cls: "text-spire-success border-spire-success/40 bg-spire-success/10",
+      hint: "Point estimate with stated uncertainty — a large sample alone is not replication.",
+    },
     replicated: {
       label: "replicated",
       cls: "text-spire-success border-spire-success/40 bg-spire-success/10",
-      hint: "100+ valid runs — estimates carry reasonable precision.",
+      hint: "Result reproduced by an independent experiment.",
     },
   };
   const s = styles[tier] ?? styles.insufficient;

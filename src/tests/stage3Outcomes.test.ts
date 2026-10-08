@@ -354,12 +354,17 @@ describe("Stage 3 — aggregation correctness", () => {
     expect(s.max).toBe(4);
   });
 
-  it("evidence tiers follow explicit thresholds", () => {
+  it("evidence tiers follow explicit thresholds — sample size is never replication", () => {
     expect(evidenceTier(0)).toBe("insufficient");
     expect(evidenceTier(9)).toBe("insufficient");
     expect(evidenceTier(10)).toBe("exploratory");
     expect(evidenceTier(49)).toBe("exploratory");
-    expect(evidenceTier(50)).toBe("replicated");
+    // ≥50 is an estimate with stated uncertainty — NOT replication.
+    expect(evidenceTier(50)).toBe("estimated");
+    expect(evidenceTier(500)).toBe("estimated");
+    // "replicated" requires explicit independent-replication evidence.
+    expect(evidenceTier(50, true)).toBe("replicated");
+    expect(evidenceTier(5, true)).toBe("insufficient"); // replication can't rescue a tiny sample
   });
 
   it("pairedCompare only pairs shared cohort indices with completed runs", () => {

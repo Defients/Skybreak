@@ -1056,10 +1056,13 @@ export function applyHealing(
   newState = { ...newState, party: newParty };
 
   const hero = newHeroes.find(h => h.id === targetId);
+  const heroBefore = state.party.heroes.find(h => h.id === targetId);
   if (hero) {
-    newState = emitEvent(newState, "HEAL_APPLIED", `${hero.name} healed for ${amount} HP. HP: ${hero.currentHp}/${hero.maxHp}.`, {
+    // Effective = actual HP restored (post-clamp delta, floor at 0).
+    const effectiveAmount = Math.max(0, hero.currentHp - Math.max(0, heroBefore?.currentHp ?? 0));
+    newState = emitEvent(newState, "HEAL_APPLIED", `${hero.name} healed for ${effectiveAmount} HP. HP: ${hero.currentHp}/${hero.maxHp}.`, {
       targetIds: [targetId],
-      details: { amount, isRevive, currentHp: hero.currentHp },
+      details: { amount, effectiveAmount, isRevive, currentHp: hero.currentHp },
     });
 
     if (isRevive) {

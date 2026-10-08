@@ -14,7 +14,34 @@ export function resolveRestChoice(
   const living = getLivingHeroes(newState);
   const dead = newState.party.heroes.filter(h => !h.alive);
 
+  /**
+   * Emit effective per-hero healing telemetry for rest restores. Rest
+   * applies HP directly (no HEAL_APPLIED historically), so without this
+   * the healingByHero accumulator missed the largest healing source.
+   * `details.amounts` is a heroId → effective-HP-restored map.
+   */
+  const emitRestHealing = (before: GameState["party"]["heroes"], after: GameState["party"]["heroes"], cause: string) => {
+    const amounts: Record<string, number> = {};
+    const targets: string[] = [];
+    for (const h of after) {
+      const prev = before.find(b => b.id === h.id);
+      const restored = Math.max(0, h.currentHp - Math.max(0, prev?.currentHp ?? 0));
+      if (restored > 0) {
+        amounts[h.id] = restored;
+        targets.push(h.id);
+      }
+    }
+    if (targets.length > 0) {
+      return emitEvent(newState, "HEAL_APPLIED", `Rest restored HP to ${targets.length} hero(es).`, {
+        targetIds: targets,
+        details: { amounts, cause },
+      });
+    }
+    return newState;
+  };
+
   if (choice === 1) {
+    const before = newState.party.heroes;
     newState = {
       ...newState,
       party: {
@@ -25,12 +52,14 @@ export function resolveRestChoice(
         })),
       },
     };
+    newState = emitRestHealing(before, newState.party.heroes, "rest_full_heal");
     newState = emitEvent(newState, "REST_CHOICE", "Party fully healed all living Heroes.", {
       details: { choice: 1, effect: "full_heal" },
     });
   } else if (choice === 2) {
     // Hard mode: death is permanent
     if (state.settings.difficulty === "hard" && dead.length > 0) {
+      const before = newState.party.heroes;
       newState = emitEvent(newState, "REST_CHOICE", "Death is permanent in Hard mode. Cannot revive. All Heroes fully healed instead.", {
         details: { choice: 2, effect: "full_heal_fallback_hard" },
       });
@@ -44,9 +73,11 @@ export function resolveRestChoice(
           })),
         },
       };
+      newState = emitRestHealing(before, newState.party.heroes, "rest_full_heal");
     } else if (dead.length > 0) {
       const revived = dead[0];
       const reviveHp = Math.floor(revived.maxHp * 0.5);
+      const before = newState.party.heroes;
       newState = {
         ...newState,
         party: {
@@ -61,10 +92,12 @@ export function resolveRestChoice(
         },
         stats: { ...newState.stats, revivals: newState.stats.revivals + 1 },
       };
+      newState = emitRestHealing(before, newState.party.heroes, "rest_revive");
       newState = emitEvent(newState, "REST_CHOICE", `Revived ${revived.name} at 50% HP (${reviveHp}). All other Heroes fully healed.`, {
         details: { choice: 2, revivedHero: revived.name, reviveHp },
       });
     } else {
+      const before = newState.party.heroes;
       newState = {
         ...newState,
         party: {
@@ -75,6 +108,7 @@ export function resolveRestChoice(
           })),
         },
       };
+      newState = emitRestHealing(before, newState.party.heroes, "rest_full_heal");
       newState = emitEvent(newState, "REST_CHOICE", "No dead Heroes to revive. All Heroes fully healed instead.", {
         details: { choice: 2, effect: "full_heal_fallback" },
       });
@@ -96,6 +130,7 @@ export function resolveRestChoice(
   } else if (choice === 4) {
     if (newState.party.maxHpBoostUsed) {
       // Fall back to full heal instead of wasting the rest
+      const before = newState.party.heroes;
       newState = {
         ...newState,
         party: {
@@ -106,6 +141,7 @@ export function resolveRestChoice(
           })),
         },
       };
+      newState = emitRestHealing(before, newState.party.heroes, "rest_full_heal");
       newState = emitEvent(newState, "REST_CHOICE", "Max HP boost already used. Party fully healed instead.", {
         details: { choice: 4, effect: "full_heal_fallback" },
       });

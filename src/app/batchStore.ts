@@ -7,13 +7,13 @@ import type {
 import type { GameEvent } from "../types/events";
 import type { ExperimentStatus } from "../types/experiment";
 import {
-  expandBatchTasks,
+  batchTaskSource,
   configFingerprint,
   newExperimentId,
 } from "../engine/experimentSpec";
 import {
   startExperiment,
-  getResumableRunIds,
+  planResume,
   type ExecutionHandle,
 } from "./experimentRunner";
 import {
@@ -21,7 +21,7 @@ import {
   type StoredExperiment,
 } from "../persistence/experimentDb";
 import { aggregateRuns } from "../engine/statistics";
-import { buildEvidencePackage, downloadJson, runsToCsv } from "../engine/evidenceExport";
+import { buildEvidencePackage, downloadJson, runsToCsv, validateEvidencePackage, importEvidencePackage, packageSizeOk } from "../engine/evidenceExport";
 import { downloadJSON, downloadCSV } from "../engine/batchSimulationEngine";
 import { generateSeed } from "../utils/ids";
 
@@ -53,6 +53,8 @@ interface BatchStore {
   doDownloadJSON: () => void;
   doDownloadCSV: () => void;
   exportEvidence: () => Promise<void>;
+  /** Import a skybreak-evidence JSON package as a read-only experiment. */
+  importEvidenceFile: (file: File) => Promise<void>;
 }
 
 const defaultConfig: BatchConfig = {
@@ -71,6 +73,9 @@ const defaultConfig: BatchConfig = {
 };
 
 let currentHandle: ExecutionHandle | null = null;
+/** Incremented on every start — stale async callbacks from a previous
+ *  session must not overwrite a newer experiment's UI state. */
+let sessionToken = 0;
 
 async function runExperimentForConfig(
   config: BatchConfig,
@@ -79,19 +84,17 @@ async function runExperimentForConfig(
   resumeId?: string
 ): Promise<void> {
   const experimentId = resumeId ?? newExperimentId("batch");
-  const tasks = expandBatchTasks(config, experimentId, config.telemetryLevel);
+  const tasks = batchTaskSource(config, experimentId, config.telemetryLevel);
   const fp = configFingerprint({ ...config, name: undefined });
+  const session = ++sessionToken;
 
-  let skipRunIds: Set<string> | undefined;
-  let priorSummary;
+  let resumePlan;
   if (resumeId) {
-    const resumable = await getResumableRunIds(resumeId);
-    if (!resumable) {
+    resumePlan = (await planResume(resumeId)) ?? undefined;
+    if (!resumePlan) {
       set({ isRunning: false, storageWarning: "Experiment is not resumable." });
       return;
     }
-    skipRunIds = resumable.runIds;
-    priorSummary = resumable.priorSummary;
   }
 
   set({
@@ -100,7 +103,7 @@ async function runExperimentForConfig(
     experimentId,
     experimentStatus: "running",
     result: null,
-    progress: { completed: skipRunIds?.size ?? 0, total: tasks.length, persisted: skipRunIds?.size ?? 0 },
+    progress: { completed: resumePlan?.reusable.size ?? 0, total: tasks.total, persisted: resumePlan?.committedCount ?? 0 },
     currentRunLog: [],
     currentRunSummary: resumeId ? "Resuming experiment…" : "",
     cancelRequested: false,
@@ -115,9 +118,9 @@ async function runExperimentForConfig(
     configFingerprint: fp,
     tasks,
     resume: !!resumeId,
-    skipRunIds,
-    priorSummary,
+    resumePlan,
     onProgress: (p) => {
+      if (session !== sessionToken) return; // stale session callback
       set({
         progress: { completed: p.completed, total: p.total, persisted: p.persisted },
         currentRunLog: (p.lastRun?.combatLog ?? []).slice(-15),
@@ -125,15 +128,16 @@ async function runExperimentForConfig(
         throughput: p.throughput,
       });
     },
-    onStatus: (s) => set({ experimentStatus: s }),
-    onStorageError: (msg) => set({ storageWarning: msg }),
+    onStatus: (s) => { if (session === sessionToken) set({ experimentStatus: s }); },
+    onStorageError: (msg) => { if (session === sessionToken) set({ storageWarning: msg }); },
   });
   currentHandle = handle;
 
   const outcome = await handle.done;
   currentHandle = null;
+  if (session !== sessionToken) return; // superseded
 
-  // Load the full committed record set for display (committed + session).
+  // Load the committed record set for display (committed + session).
   let allRuns: RunResult[] = outcome.records;
   try {
     const store = await getExperimentStore();
@@ -160,7 +164,7 @@ async function runExperimentForConfig(
     isPaused: outcome.status === "paused",
     result: batchResult,
     experimentStatus: outcome.status,
-    progress: { completed: allRuns.length, total: tasks.length, persisted: outcome.persisted + (skipRunIds?.size ?? 0) },
+    progress: { completed: allRuns.length, total: tasks.total, persisted: outcome.committedTotal },
     currentRunLog: [],
     currentRunSummary: "",
     storageWarning: outcome.stored ? get().storageWarning : "Durable storage unavailable — results are in memory only. Export before closing the tab.",
@@ -203,6 +207,12 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   },
 
   resetBatch: () => {
+    if (get().isRunning) {
+      // Never discard in-flight work silently — cancel so committed
+      // progress is preserved and the experiment can be resumed later.
+      currentHandle?.cancel();
+    }
+    sessionToken++;
     set({
       result: null,
       isRunning: false,
@@ -230,6 +240,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   },
 
   openExperiment: async (id) => {
+    if (get().isRunning) return; // don't clobber an active session's view
     const store = await getExperimentStore();
     const meta = await store.getExperiment(id);
     if (!meta || meta.kind !== "batch") return;
@@ -253,6 +264,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   },
 
   resumeExperiment: async (id) => {
+    if (get().isRunning) return;
     const store = await getExperimentStore();
     const meta = await store.getExperiment(id);
     if (!meta || meta.kind !== "batch") return;
@@ -262,6 +274,11 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   },
 
   deleteExperiment: async (id) => {
+    // Refuse to delete the experiment currently executing in this context.
+    if (get().isRunning && get().experimentId === id) {
+      set({ storageWarning: "Cannot delete an experiment while it is running." });
+      return;
+    }
     const store = await getExperimentStore();
     await store.deleteExperiment(id);
     await get().loadHistory();
@@ -282,8 +299,9 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
     if (!experimentId) return;
     const store = await getExperimentStore();
     const meta = await store.getExperiment(experimentId);
-    const runs = await store.getRuns(experimentId);
     if (!meta) return;
+    // Paged reads bound peak memory — don't double-buffer the whole set.
+    const runs = await store.getRuns(experimentId);
     const pkg = buildEvidencePackage(meta, runs);
     downloadJson(`evidence_${experimentId}.json`, pkg);
     // Also emit a runs CSV alongside.
@@ -295,5 +313,38 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
     a.download = `evidence_${experimentId}_runs.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  importEvidenceFile: async (file) => {
+    const sizeCheck = packageSizeOk(file.size);
+    if (!sizeCheck.ok) {
+      set({ storageWarning: `Import rejected: ${sizeCheck.error}` });
+      return;
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch {
+      set({ storageWarning: "Import rejected: file is not valid JSON." });
+      return;
+    }
+    const v = validateEvidencePackage(raw);
+    if (!v.ok || !v.package) {
+      set({ storageWarning: `Import rejected: ${v.errors.slice(0, 3).join("; ")}` });
+      return;
+    }
+    const store = await getExperimentStore();
+    const res = await importEvidencePackage(store, v.package, v.warnings);
+    if (res.ok) {
+      set({
+        storageWarning: res.warnings.length
+          ? `Imported ${res.imported} run(s) with warnings: ${res.warnings.slice(0, 2).join("; ")}`
+          : `Imported ${res.imported} run(s) as read-only evidence.`,
+      });
+      await get().loadHistory();
+      if (res.experimentId) await get().openExperiment(res.experimentId);
+    } else {
+      set({ storageWarning: res.errors.slice(0, 3).join("; ") });
+    }
   },
 }));

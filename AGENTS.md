@@ -2,14 +2,42 @@
 
 ## Build / Test / Verify
 - Install: `npm ci`
-- Test: `npm test` (vitest run, **760 tests / 24 files**, jsdom, ~34s)
+- Test: `npm test` (vitest run, **1,230 tests / 33 files**, jsdom, ~17s)
 - Typecheck: `npx tsc -b --noEmit`
-- Build: `npm run build` (tsc -b && vite build, ~26s)
+- Build: `npm run build` (tsc -b && vite build, ~10s)
+- E2E: `npm run test:e2e` (Playwright Chromium, 38 tests)
 - Dev: `npm run dev`
 - No lint script configured. GitHub CI workflow exists and passes.
 
 ## Stack
 React 18 + TypeScript (strict) + Vite 5 + Zustand 4 + Tailwind 3 + vitest 2 + recharts + marked.
+
+## Experiment Infrastructure (Stage 4 — see STAGE4_REPORT.md)
+- `src/app/experimentRunner.ts` — coordinator: lazy `TaskSource` scheduling,
+  `WorkerPool` (init handshake 5s, task timeout 120s, validate-before-free,
+  respawn ≤10, bounded cancel), serialized `CheckpointWriter` (drain before
+  any terminal status), `planResume()` (reusable vs retryable), Web Lock +
+  IDB lease fencing (15s TTL, 5s renew), `completed-with-errors` classification.
+- `src/persistence/experimentDb.ts` — IndexedDB v2 (`experiments`, `runs`,
+  `receipts`), atomic `commitCheckpoint` (runs+receipts+meta in one tx,
+  ownerToken fencing), status-precedence dedupe (`completed` never
+  downgraded), `getRunsPage`/receipts/counts, lease API, `MemoryExperimentStore`
+  fallback (`durable === false` — volatile, disclosed).
+- `src/engine/telemetry.ts` — v2: `stats.deathsByHero` (pruning-proof),
+  effective healing (`amounts`/`effectiveAmount`, incl. rest heals), honest
+  encounters (`closed` + `unknown`/`in-progress`, never fabricated),
+  deep-trace sink (8k cap, `traceStats` disclosure).
+- `src/engine/statistics.ts` — completed-only denominators, `victoryRate`
+  undefined→N/A, Wilson CI, evidence tiers (estimated@50+, replicated only
+  with explicit flag), `pairedCompare` (cohortIndex matching), `OnlineAggregator`
+  (Welford, O(1)).
+- `src/engine/evidenceExport.ts` — package validation (status/outcome
+  legality, duplicates, provenance warnings), idempotent `importEvidencePackage`
+  (`imp_<id>` target, "imported" read-only status), import UI in
+  `ExperimentHistoryPanel`.
+- Worker import must use `?worker` (`import SimulationWorker from
+  "../workers/simulation.worker.ts?worker"`) — a hoisted `new URL()` emits an
+  unbundled `data:` URL with unresolved imports.
 
 ## Delivery Metrics (measured at HEAD eda4f0a; updated Phase 6a)
 - Build duration: ~26s (tsc -b + vite build)

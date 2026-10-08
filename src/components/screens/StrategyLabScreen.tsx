@@ -28,7 +28,7 @@ import type { GameEvent } from "../../types/events";
 import type { PartySetupChoice } from "../../engine/gameState";
 import { generateSeed } from "../../utils/ids";
 import { generateCrossProduct } from "../../engine/strategyLabEngine";
-import { wilsonInterval } from "../../engine/statistics";
+import { wilsonInterval, pairedCompare } from "../../engine/statistics";
 import { ExperimentHistoryPanel } from "../experiment/ExperimentHistoryPanel";
 import {
   formatLogSummaryWithNames,
@@ -519,13 +519,14 @@ export function StrategyLabScreen({ onBack }: Props) {
         </button>
       </div>
 
-      {/* Experiment History */}
-      {historyLoaded && history.length > 0 && (
+      {/* Experiment History + evidence import */}
+      {historyLoaded && (
         <ExperimentHistoryPanel
           experiments={history}
           onOpen={(id) => { playSfx("ui", "button_click"); void openExperiment(id); }}
           onResume={(id) => { playSfx("ui", "button_click"); void resumeExperiment(id); }}
           onDelete={(id) => { void deleteExperiment(id); }}
+          onImportFile={(f) => { void useStrategyLabStore.getState().importEvidenceFile(f); }}
         />
       )}
     </div>
@@ -720,7 +721,7 @@ function ResultsView({
       let av: number | string, bv: number | string;
       switch (sortKey) {
         case "comboLabel": av = a.comboLabel; bv = b.comboLabel; break;
-        case "victoryRate": av = a.aggregate.victoryRate; bv = b.aggregate.victoryRate; break;
+        case "victoryRate": av = a.aggregate.victoryRate ?? -1; bv = b.aggregate.victoryRate ?? -1; break;
         case "avgScore": av = a.aggregate.avgScore; bv = b.aggregate.avgScore; break;
         case "maxScore": av = a.aggregate.maxScore; bv = b.aggregate.maxScore; break;
         case "avgTurns": av = a.aggregate.avgTurns; bv = b.aggregate.avgTurns; break;
@@ -863,7 +864,10 @@ function ResultsView({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <StatBox label="Total Combos" value={result.combos.length} />
               <StatBox label="Total Runs" value={result.totalRuns} />
-              <StatBox label="Avg Victory Rate" value={`${Math.round(result.combos.reduce((s, c) => s + c.aggregate.victoryRate, 0) / result.combos.length)}%`} />
+              <StatBox label="Avg Victory Rate" value={(() => {
+                const rates = result.combos.map(c => c.aggregate.victoryRate).filter((v): v is number => v !== undefined);
+                return rates.length ? `${Math.round(rates.reduce((s, v) => s + v, 0) / rates.length)}%` : "N/A";
+              })()} />
               <StatBox label="Avg Score" value={Math.round(result.combos.reduce((s, c) => s + c.aggregate.avgScore, 0) / result.combos.length)} />
             </div>
           </div>
@@ -942,8 +946,8 @@ function ResultsView({
                         {cr.comboLabel}
                       </td>
                       <td className="py-2 px-2 text-right">
-                        <span className={cr.aggregate.victoryRate >= 50 ? "text-green-400 font-medium" : cr.aggregate.victoryRate >= 25 ? "text-amber-400" : "text-red-400"}>
-                          {cr.aggregate.victoryRate}%
+                        <span className={(cr.aggregate.victoryRate ?? -1) >= 50 ? "text-green-400 font-medium" : (cr.aggregate.victoryRate ?? -1) >= 25 ? "text-amber-400" : cr.aggregate.victoryRate === undefined ? "text-spire-muted" : "text-red-400"}>
+                          {cr.aggregate.victoryRate !== undefined ? `${cr.aggregate.victoryRate}%` : "N/A"}
                         </span>
                       </td>
                       <td className="py-2 px-2 text-right text-spire-muted text-xs tabular-nums">
@@ -966,6 +970,9 @@ function ResultsView({
               </tbody>
             </table>
           </div>
+
+          {/* Paired comparison — only meaningful for shared-cohort runs */}
+          <PairedComparisonCard result={result} />
         </div>
       )}
 
@@ -1023,7 +1030,7 @@ function ResultsView({
               ].map((metric) => {
                 const row: Record<string, number | string> = { metric };
                 [...result.combos]
-                  .sort((a, b) => b.aggregate.victoryRate - a.aggregate.victoryRate)
+                  .sort((a, b) => (b.aggregate.victoryRate ?? -1) - (a.aggregate.victoryRate ?? -1))
                   .slice(0, 5)
                   .forEach((c) => { row[c.comboLabel] = (c.avgScoreBreakdown as any)[metric]; });
                 return row;
@@ -1036,7 +1043,7 @@ function ResultsView({
                 />
                 <Legend wrapperStyle={{ fontSize: "11px" }} />
                 {[...result.combos]
-                  .sort((a, b) => b.aggregate.victoryRate - a.aggregate.victoryRate)
+                  .sort((a, b) => (b.aggregate.victoryRate ?? -1) - (a.aggregate.victoryRate ?? -1))
                   .slice(0, 5)
                   .map((c, i) => (
                     <Radar key={c.comboLabel} name={c.comboLabel} dataKey={c.comboLabel} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.15} />
@@ -1711,5 +1718,97 @@ function PartyCompTable({ result }: { result: StrategyLabResult }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * Paired (shared-cohort) comparison between two combos. Pairs runs by
+ * cohortIndex — the same seed was replayed under both strategies, so
+ * differences are attributable to strategy, not scenario RNG. Only
+ * completed runs form valid pairs; technical failures are excluded.
+ * Requires `sharedCohort` in the experiment config.
+ */
+function PairedComparisonCard({ result }: { result: StrategyLabResult }) {
+  const [aIdx, setAIdx] = useState<number | null>(null);
+  const [bIdx, setBIdx] = useState<number | null>(null);
+
+  if (!result.config.sharedCohort) {
+    return (
+      <div className="mt-4 rounded border border-spire-border/30 bg-spire-bg/40 p-3 text-xs text-spire-muted">
+        <span className="font-medium text-spire-white">Paired Comparison unavailable.</span>{" "}
+        This experiment was not run with a shared cohort, so runs cannot be matched
+        seed-for-seed. Enable <span className="text-spire-gold">Shared Cohort</span> in the
+        configuration to compare strategies on identical scenarios — unpaired win-rate
+        differences include scenario RNG noise and are weaker evidence.
+      </div>
+    );
+  }
+
+  const comparison =
+    aIdx !== null && bIdx !== null && aIdx !== bIdx
+      ? pairedCompare(result.combos[aIdx].runs, result.combos[bIdx].runs)
+      : undefined;
+
+  return (
+    <div className="mt-4 rounded border border-spire-border/30 bg-spire-bg/40 p-3" data-testid="paired-comparison">
+      <h4 className="text-xs font-semibold text-spire-white mb-2">Paired Comparison (shared cohort)</h4>
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        <select
+          className="input text-xs py-1"
+          value={aIdx ?? ""}
+          onChange={(e) => setAIdx(e.target.value === "" ? null : parseInt(e.target.value))}
+          data-testid="paired-select-a"
+        >
+          <option value="">— Combo A —</option>
+          {result.combos.map((c, i) => (
+            <option key={i} value={i}>{c.comboLabel}</option>
+          ))}
+        </select>
+        <span className="text-spire-muted">vs</span>
+        <select
+          className="input text-xs py-1"
+          value={bIdx ?? ""}
+          onChange={(e) => setBIdx(e.target.value === "" ? null : parseInt(e.target.value))}
+          data-testid="paired-select-b"
+        >
+          <option value="">— Combo B —</option>
+          {result.combos.map((c, i) => (
+            <option key={i} value={i}>{c.comboLabel}</option>
+          ))}
+        </select>
+      </div>
+      {aIdx !== null && aIdx === bIdx && (
+        <div className="text-xs text-spire-muted">Select two different combos.</div>
+      )}
+      {comparison && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <StatBox label="Matched pairs" value={comparison.pairs} />
+          <StatBox label="Unmatched A / B" value={`${comparison.unmatchedA} / ${comparison.unmatchedB}`} />
+          <StatBox
+            label="A wins / B wins / ties"
+            value={`${comparison.winDiffs.aWins} / ${comparison.winDiffs.bWins} / ${comparison.winDiffs.ties}`}
+          />
+          <StatBox
+            label="Mean score diff (A−B)"
+            value={
+              comparison.meanScoreDiff === undefined
+                ? "N/A"
+                : `${comparison.meanScoreDiff >= 0 ? "+" : ""}${comparison.meanScoreDiff.toFixed(1)}` +
+                  (comparison.scoreDiffCI
+                    ? ` [${comparison.scoreDiffCI.low.toFixed(0)}, ${comparison.scoreDiffCI.high.toFixed(0)}]`
+                    : "")
+            }
+          />
+          <div className="col-span-2 sm:col-span-4 text-[10px] text-spire-muted mt-1">
+            {comparison.winRateDiffNote} Pairs share starting seeds; once strategies
+            diverge, downstream RNG consumption differs — pairing removes scenario
+            variance, not all noise. Runs that failed technically are excluded.
+          </div>
+        </div>
+      )}
+      {aIdx === null || bIdx === null ? (
+        <div className="text-xs text-spire-muted">Pick two combos to compare head-to-head on identical scenarios.</div>
+      ) : null}
+    </div>
   );
 }

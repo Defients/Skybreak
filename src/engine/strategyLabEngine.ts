@@ -280,12 +280,13 @@ export async function runStrategyLab(
 
   for (let i = 0; i < comboResults.length; i++) {
     const cr = comboResults[i];
-    if (cr.aggregate.victoryRate > bestWinRate) {
-      bestWinRate = cr.aggregate.victoryRate;
+    const wr = cr.aggregate.victoryRate;
+    if (wr !== undefined && wr > bestWinRate) {
+      bestWinRate = wr;
       bestComboIndex = i;
     }
-    if (cr.aggregate.victoryRate < worstWinRate) {
-      worstWinRate = cr.aggregate.victoryRate;
+    if (wr !== undefined && wr < worstWinRate) {
+      worstWinRate = wr;
       worstComboIndex = i;
     }
     if (cr.scoreStdDev < lowestStdDev) {
@@ -353,7 +354,7 @@ export function downloadLabCSV(result: StrategyLabResult): void {
     cr.combo.weaponUpgradeStrategy,
     cr.aggregate.validRuns,
     cr.aggregate.totalRuns - cr.aggregate.validRuns,
-    cr.aggregate.victoryRate,
+    cr.aggregate.victoryRate ?? "N/A",
     cr.aggregate.victoryRateCI ? (cr.aggregate.victoryRateCI.low * 100).toFixed(1) : "",
     cr.aggregate.victoryRateCI ? (cr.aggregate.victoryRateCI.high * 100).toFixed(1) : "",
     cr.aggregate.avgScore,

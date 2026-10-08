@@ -7,7 +7,7 @@
  * EXCLUDED. It never fabricates completeness.
  */
 import type { RunRecord, ExperimentKind } from "../types/experiment";
-import type { StoredExperiment } from "../persistence/experimentDb";
+import type { StoredExperiment, ExperimentStore } from "../persistence/experimentDb";
 import { ENGINE_FINGERPRINT, EXPERIMENT_SCHEMA_VERSION } from "./experimentSpec";
 
 export const EVIDENCE_SCHEMA_VERSION = 1;
@@ -87,7 +87,14 @@ export interface EvidenceValidation {
   package?: EvidencePackage;
 }
 
-/** Validate an imported evidence package. Never executes anything. */
+const MAX_PACKAGE_BYTES = 50 * 1024 * 1024; // 50 MB
+const MAX_PACKAGE_RUNS = 200_000;
+const LEGAL_STATUSES = new Set(["completed", "error", "timeout", "invalid", "cancelled", "interrupted"]);
+const LEGAL_OUTCOMES = new Set(["victory", "defeat", "retreat"]);
+
+/** Validate an imported evidence package. Never executes anything.
+ *  Treats the input as untrusted: checks structure, legal status/outcome
+ *  combinations, duplicates, numeric sanity, and size limits. */
 export function validateEvidencePackage(raw: unknown): EvidenceValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -100,20 +107,56 @@ export function validateEvidencePackage(raw: unknown): EvidenceValidation {
   else if (p.schemaVersion > EVIDENCE_SCHEMA_VERSION)
     errors.push(`Unsupported schema version ${p.schemaVersion} (max ${EVIDENCE_SCHEMA_VERSION})`);
   if (typeof p.experimentId !== "string" || !p.experimentId) errors.push("Missing experimentId");
+  else if (p.experimentId.length > 200) errors.push("experimentId too long");
   if (p.kind !== "batch" && p.kind !== "strategy-lab") errors.push(`Unknown kind: ${String(p.kind)}`);
   if (!Array.isArray(p.runs)) errors.push("Missing runs array");
   else {
+    if (p.runs.length > MAX_PACKAGE_RUNS) {
+      errors.push(`Package too large: ${p.runs.length} runs (max ${MAX_PACKAGE_RUNS})`);
+    }
     const ids = new Set<string>();
-    const badStatus = new Set<string>();
-    for (const r of p.runs) {
-      if (typeof r?.runId !== "string") { errors.push("Run missing runId"); break; }
-      if (ids.has(r.runId)) { errors.push(`Duplicate runId: ${r.runId}`); break; }
+    const cohortCombo = new Set<string>();
+    let schemaErrors = 0;
+    let statusOutcomeErrors = 0;
+    let numericErrors = 0;
+    for (const [i, r] of p.runs.entries()) {
+      if (errors.length > 12) break; // don't flood the report
+      if (typeof r?.runId !== "string" || !r.runId) { errors.push(`Run ${i}: missing runId`); continue; }
+      if (ids.has(r.runId)) { errors.push(`Duplicate runId: ${r.runId}`); continue; }
       ids.add(r.runId);
-      if (!["completed", "error", "timeout", "invalid", "cancelled", "interrupted"].includes(r.status)) {
-        badStatus.add(String(r.status));
+      if (!LEGAL_STATUSES.has(r.status)) { schemaErrors++; continue; }
+      // Legal status/outcome combinations: only completed carries an outcome.
+      if (r.status === "completed" && !LEGAL_OUTCOMES.has(r.outcome ?? "")) {
+        statusOutcomeErrors++;
+      }
+      if (r.status !== "completed" && r.outcome !== undefined) {
+        statusOutcomeErrors++;
+      }
+      if (typeof r.runIndex !== "number" || !Number.isFinite(r.runIndex)) numericErrors++;
+      if (typeof r.cohortIndex === "number" && r.comboId) {
+        const ck = `${r.comboId}#${r.cohortIndex}`;
+        if (cohortCombo.has(ck)) {
+          warnings.push(`Duplicate cohort entry: ${ck}`);
+        }
+        cohortCombo.add(ck);
+      }
+      if (r.score && (!Number.isFinite(r.score.finalScore))) numericErrors++;
+      if (r.traceStats && typeof r.traceStats.emitted === "number" &&
+          typeof r.traceStats.retained === "number" &&
+          r.traceStats.retained > r.traceStats.emitted) {
+        warnings.push(`Run ${r.runId}: trace retained > emitted (suspicious completeness claim)`);
       }
     }
-    if (badStatus.size) errors.push(`Unknown run statuses: ${[...badStatus].join(", ")}`);
+    if (schemaErrors) errors.push(`${schemaErrors} run(s) with unknown status values`);
+    if (statusOutcomeErrors) errors.push(`${statusOutcomeErrors} run(s) with illegal status/outcome combinations`);
+    if (numericErrors) errors.push(`${numericErrors} run(s) with non-finite numeric fields`);
+  }
+  // Totals consistency (advisory)
+  if (p.totals && Array.isArray(p.runs)) {
+    const completed = p.runs.filter((r) => r?.status === "completed").length;
+    if (typeof p.totals.validRuns === "number" && p.totals.validRuns !== completed) {
+      warnings.push(`Declared validRuns (${p.totals.validRuns}) differs from counted completed runs (${completed})`);
+    }
   }
   if (p.engineFingerprint && p.engineFingerprint !== ENGINE_FINGERPRINT) {
     warnings.push(
@@ -124,6 +167,94 @@ export function validateEvidencePackage(raw: unknown): EvidenceValidation {
   return errors.length
     ? { ok: false, errors, warnings }
     : { ok: true, errors, warnings, package: p as EvidencePackage };
+}
+
+/** Text-size guard for file imports — call before JSON.parse. */
+export function packageSizeOk(byteLength: number): { ok: boolean; error?: string } {
+  if (byteLength > MAX_PACKAGE_BYTES) {
+    return { ok: false, error: `Package exceeds ${MAX_PACKAGE_BYTES / 1024 / 1024}MB limit (${(byteLength / 1024 / 1024).toFixed(1)}MB)` };
+  }
+  return { ok: true };
+}
+
+// ─── Import ──────────────────────────────────────────────────────────────────
+
+export interface ImportResult {
+  ok: boolean;
+  experimentId?: string;
+  imported: number;
+  skippedDuplicates: number;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Import a validated evidence package into the experiment store as a
+ * read-only "imported" experiment. Deterministic target id (`imp_<pkgId>`)
+ * makes re-import idempotent — duplicate runIds are skipped, never merged.
+ */
+export async function importEvidencePackage(
+  store: ExperimentStore,
+  pkg: EvidencePackage,
+  warnings: string[] = []
+): Promise<ImportResult> {
+  const targetId = `imp_${pkg.experimentId}`.slice(0, 200);
+  const existing = await store.getExperiment(targetId).catch(() => undefined);
+  const existingIds = existing ? await store.getRunIds(targetId) : new Set<string>();
+  const newRuns = pkg.runs
+    .filter((r) => !existingIds.has(r.runId))
+    .map((r) => ({ ...r, experimentId: targetId }));
+  const skipped = pkg.runs.length - newRuns.length;
+
+  const now = new Date().toISOString();
+  const meta: StoredExperiment = {
+    id: targetId,
+    kind: pkg.kind,
+    name: `${pkg.name ?? pkg.experimentId} (imported)`,
+    status: "imported",
+    createdAt: pkg.createdAt ?? now,
+    updatedAt: now,
+    schemaVersion: pkg.experimentSchemaVersion ?? EXPERIMENT_SCHEMA_VERSION,
+    engineFingerprint: pkg.engineFingerprint ?? "unknown",
+    configFingerprint: pkg.configFingerprint ?? "unknown",
+    config: pkg.config,
+    totalTasks: pkg.totals?.tasks ?? pkg.runs.length,
+    completedTasks: pkg.runs.length,
+    persistedTasks: pkg.runs.length,
+    importedFrom: pkg.experimentId,
+    summary: {
+      validRuns: pkg.totals?.validRuns ?? pkg.runs.filter((r) => r.status === "completed").length,
+      victories: pkg.totals?.victories ?? 0,
+      defeats: pkg.totals?.defeats ?? 0,
+      errorRuns: pkg.runs.filter((r) => r.status === "error" || r.status === "invalid").length,
+      timeoutRuns: pkg.runs.filter((r) => r.status === "timeout").length,
+      avgScore: 0,
+    },
+  };
+  try {
+    if (!existing) await store.createExperiment(meta);
+    else await store.updateExperiment(targetId, meta);
+    if (newRuns.length) await store.putRuns(newRuns);
+    return {
+      ok: true,
+      experimentId: targetId,
+      imported: newRuns.length,
+      skippedDuplicates: skipped,
+      errors: [],
+      warnings: [
+        ...warnings,
+        ...(skipped ? [`${skipped} duplicate run(s) already imported — skipped`] : []),
+      ],
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      imported: 0,
+      skippedDuplicates: 0,
+      errors: [`Import failed: ${err instanceof Error ? err.message : String(err)}`],
+      warnings,
+    };
+  }
 }
 
 /** Download a JSON document (browser only — never called from workers). */

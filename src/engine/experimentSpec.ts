@@ -20,6 +20,9 @@
 import type { BatchConfig } from "../types/batch";
 import type { StrategyCombo, StrategyLabConfig } from "../types/strategyLab";
 import type { RunTask, SimRunPolicy, TelemetryLevel } from "../types/experiment";
+import { CLASS_DATA } from "../data/classes";
+import { MONSTERS } from "../data/monsters";
+import { ITEMS, PERMANENT_UPGRADES } from "../data/items";
 
 /**
  * Behavior fingerprint. Bump whenever a change alters seeded outcomes
@@ -78,6 +81,30 @@ export function stableStringify(value: unknown): string {
  */
 export function configFingerprint(config: unknown): string {
   return fnv1a(stableStringify(config));
+}
+
+// ─── Content fingerprint (Stage 4 provenance) ────────────────────────────────
+
+let cachedContentFingerprint: string | null = null;
+
+/**
+ * Fingerprint of gameplay-relevant static content (class stats, monster
+ * stats, item effects). Computed from the actual data tables — a change to
+ * balance data changes the fingerprint without a manual version bump.
+ * Lazily computed and cached; hashing happens once per session.
+ */
+export function contentFingerprint(): string {
+  if (cachedContentFingerprint) return cachedContentFingerprint;
+  const snapshot = {
+    classes: Object.fromEntries(
+      Object.entries(CLASS_DATA).map(([k, v]) => [k, { baseHp: v.baseHp, startingGold: v.startingGold }])
+    ),
+    monsters: MONSTERS.map((m) => ({ id: m.id, name: m.name, hp: m.baseHp, gold: m.baseGold })),
+    items: Object.keys(ITEMS).sort(),
+    upgrades: Object.keys(PERMANENT_UPGRADES).sort(),
+  };
+  cachedContentFingerprint = fnv1a(stableStringify(snapshot));
+  return cachedContentFingerprint;
 }
 
 // ─── Seed derivation ─────────────────────────────────────────────────────────
@@ -140,41 +167,85 @@ export function expandLabTasks(
   combos: StrategyCombo[],
   experimentId?: string
 ): RunTask[] {
-  const level = config.telemetryLevel ?? "standard";
+  const source = labTaskSource(config, combos, experimentId);
   const tasks: RunTask[] = [];
-  for (let ci = 0; ci < combos.length; ci++) {
-    const comboId = comboToId(combos[ci]);
-    const policy: SimRunPolicy = {
-      difficulty: config.difficulty,
-      partyMode: config.partyMode,
-      partyChoices: config.partyChoices,
-      combatStrategy: combos[ci].combatStrategy,
-      merchantStrategy: combos[ci].merchantStrategy,
-      restStrategy: combos[ci].restStrategy,
-      splitStrategy: combos[ci].splitStrategy,
-      itemUsageStrategy: combos[ci].itemUsageStrategy,
-      weaponUpgradeStrategy: combos[ci].weaponUpgradeStrategy,
-    };
-    for (let ri = 0; ri < config.runsPerCombo; ri++) {
-      tasks.push({
+  for (let i = 0; i < source.total; i++) tasks.push(source.get(i));
+  return tasks;
+}
+
+// ─── Lazy task sources (Stage 4) ─────────────────────────────────────────────
+
+/**
+ * Deterministic task generation by index — the coordinator can schedule
+ * large experiments without materializing every RunTask up front.
+ * Task identity (runId/seed/policy) depends only on the index and config.
+ */
+export interface TaskSource {
+  total: number;
+  get(index: number): RunTask;
+}
+
+export function batchTaskSource(
+  config: BatchConfig,
+  experimentId?: string,
+  telemetryLevel?: TelemetryLevel
+): TaskSource {
+  const policy = batchPolicy(config);
+  const level = telemetryLevel ?? config.telemetryLevel ?? "standard";
+  return {
+    total: config.runs,
+    get: (i) => ({
+      runId: `${experimentId ?? "batch"}:r${i}`,
+      experimentId,
+      comboIndex: -1,
+      cohortIndex: i,
+      runIndex: i,
+      seed: deriveRunSeed(config.baseSeed, "batch", i),
+      policy,
+      telemetryLevel: level,
+    }),
+  };
+}
+
+export function labTaskSource(
+  config: StrategyLabConfig,
+  combos: StrategyCombo[],
+  experimentId?: string
+): TaskSource {
+  const level = config.telemetryLevel ?? "standard";
+  const comboIds = combos.map(comboToId);
+  const policies = combos.map((c): SimRunPolicy => ({
+    difficulty: config.difficulty,
+    partyMode: config.partyMode,
+    partyChoices: config.partyChoices,
+    combatStrategy: c.combatStrategy,
+    merchantStrategy: c.merchantStrategy,
+    restStrategy: c.restStrategy,
+    splitStrategy: c.splitStrategy,
+    itemUsageStrategy: c.itemUsageStrategy,
+    weaponUpgradeStrategy: c.weaponUpgradeStrategy,
+  }));
+  const scope = config.sharedCohort ? "cohort" : "ind";
+  const runsPerCombo = config.runsPerCombo;
+  return {
+    total: combos.length * runsPerCombo,
+    get: (index) => {
+      const ci = Math.floor(index / runsPerCombo);
+      const ri = index % runsPerCombo;
+      const comboId = comboIds[ci];
+      return {
         runId: `${experimentId ?? "lab"}:${fnv1a(comboId)}:r${ri}`,
         experimentId,
         comboIndex: ci,
         comboId,
         cohortIndex: ri,
         runIndex: ri,
-        seed: deriveRunSeed(
-          config.baseSeed,
-          config.sharedCohort ? "cohort" : "ind",
-          ri,
-          comboId
-        ),
-        policy,
+        seed: deriveRunSeed(config.baseSeed, scope, ri, comboId),
+        policy: policies[ci],
         telemetryLevel: level,
-      });
-    }
-  }
-  return tasks;
+      };
+    },
+  };
 }
 
 // ─── Workload estimation ─────────────────────────────────────────────────────
